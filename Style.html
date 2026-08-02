@@ -190,4 +190,15 @@ input:checked + .slider:before{transform:translateX(18px);}
 ::-webkit-scrollbar{width:10px; height:10px;}
 ::-webkit-scrollbar-thumb{background:#D9D6C9; border-radius:10px;}
 #sidebar::-webkit-scrollbar-thumb{background:rgba(255,255,255,.15);}
+
+.print-only{display:none;}
+@media print{
+  #sidebar, #topbar, .report-tabbar, .btn, .modal, .overlay, .toast{display:none !important;}
+  #main{margin:0 !important; width:100% !important;}
+  #content{padding:0 !important;}
+  .panel{border:none !important; box-shadow:none !important; padding:0 !important;}
+  .print-only{display:block !important;}
+  body, #app{background:#fff !important;}
+  table{font-size:11px;}
+}
 </style>
