@@ -57,6 +57,12 @@ function getConfigStatus() {
 /** Lưu cấu hình liên kết mới — gọi khi người dùng bấm "Lưu & Bắt đầu" ở màn hình khởi tạo.
  *  KHÔNG tự tạo sheet / seed dữ liệu — việc đó chỉ chạy khi người dùng bấm nút "Khởi tạo cấu trúc dữ liệu". */
 function saveConfig(congTyUrl, nhanSuUrl, draftUrl) {
+  const existingCfg = getConfig_();
+  if (existingCfg) {
+    // Đã có cấu hình từ trước -> đây là ĐỔI liên kết, không phải khởi tạo lần đầu -> chỉ Admin.
+    const me = getCurrentUserInfo();
+    if (!me.canAdmin) throw new Error('Chỉ Admin được đổi liên kết dữ liệu.');
+  }
   const cfg = {
     congTyId: extractSheetId_(congTyUrl),
     nhanSuId: extractSheetId_(nhanSuUrl),
@@ -80,6 +86,8 @@ function saveConfig(congTyUrl, nhanSuUrl, draftUrl) {
 function initializeDataStructure() {
   const cfg = getConfig_();
   if (!cfg) throw new Error('Chưa cấu hình liên kết Google Sheet. Hãy thiết lập trước.');
+  const me = getCurrentUserInfo();
+  if (!me.canAdmin) throw new Error('Chỉ Admin được khởi tạo cấu trúc dữ liệu.');
   ensureAllSheets_();
   seedRealDanhMucIfEmpty_();
   cfg.initialized = true;
@@ -492,7 +500,13 @@ function applyFormulasToAllRows_(table) {
 function getAllData() {
   const cfg = getConfig_();
   if (!cfg) throw new Error('Chưa cấu hình liên kết Google Sheet. Hãy thiết lập trước.');
-  const congTyData = batchReadSpreadsheet_(cfg.congTyId, COMPANY_TABLES);
+  const me = getCurrentUserInfo();
+  if (!me.role) throw new Error('Tài khoản của bạn chưa được cấp quyền sử dụng hệ thống.');
+  // DM_NGUOIDUNG KHÔNG được gộp vào đây — nếu không, toàn bộ email + phân quyền của mọi người dùng
+  // sẽ bị gửi xuống trình duyệt của TẤT CẢ mọi người (kể cả Nhân viên), dù giao diện có ẩn đi.
+  // Bảng này có hàm riêng listUsers() đã kiểm tra quyền (canManageUsers) trước khi trả dữ liệu.
+  const companyTablesForClient = COMPANY_TABLES.filter(t => t !== 'DM_NGUOIDUNG');
+  const congTyData = batchReadSpreadsheet_(cfg.congTyId, companyTablesForClient);
   const nhanSuData = batchReadSpreadsheet_(cfg.nhanSuId, NHANSU_TABLES);
   return Object.assign({}, congTyData, nhanSuData);
 }
@@ -571,6 +585,8 @@ function saveDraftRow(table, row, action) {
 /** Lấy toàn bộ bản nháp đang "Chờ duyệt" ở mọi bảng — dùng cho màn hình Duyệt.
  *  Dùng batchGet gộp 1 lượt gọi API duy nhất cho tất cả bảng (thay vì đọc tuần tự từng bảng — rất chậm). */
 function getPendingDrafts() {
+  const me = getCurrentUserInfo();
+  if (!me.role) throw new Error('Tài khoản của bạn chưa được cấp quyền sử dụng hệ thống.');
   const ss = getDraftSpreadsheet_();
   const cfg = getConfig_();
   const existingNames = ss.getSheets().map(s => s.getName());
@@ -880,6 +896,8 @@ function appendRows_(table, rows) {
 // 7) SEED — 1 nhân viên mẫu (tham chiếu đúng danh mục thật ở trên)
 // =====================================================================
 function seedDemoEmployee() {
+  const me = getCurrentUserInfo();
+  if (!me.canEdit) throw new Error('Bạn không có quyền thêm dữ liệu.');
   ensureAllSheets_();
   seedRealDanhMucIfEmpty_();
 
@@ -920,7 +938,7 @@ function seedDemoEmployee() {
     pbSX?pbSX._id:'',cvCN?cvCN._id:'',luongSP?luongSP._id:'','',4680000,6000000,'Chuyển khoản',
     baoHiemDu?baoHiemDu._id:'',tncnLT?tncnLT._id:'','','','','',
     'Hợp đồng gốc','2021-05-10','']]);
-  appendRows_('CT_NOIQUY', [[uid_(),hopdongId,y+'-04-02','Đi trễ 3 lần trong tháng','Đang xử lý','Nhắc nhở bằng văn bản']]);
+  appendRows_('CT_NOIQUY', [[uid_(),hdldId,y+'-04-02','Đi trễ 3 lần trong tháng','Đang xử lý','Nhắc nhở bằng văn bản']]);
 
   return true;
 }
