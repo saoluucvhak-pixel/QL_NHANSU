@@ -18,6 +18,9 @@
 // =====================================================================
 const CONFIG_KEY = 'HR_CONFIG_V1';
 
+// Email này LUÔN được tự động cấp quyền Admin ngay lần đầu tiên họ mở app (nếu DM_NGUOIDUNG còn trống).
+const ADMIN_EMAIL = 'saoluucvhak@gmail.com';
+
 // Chỉ dùng để điền sẵn (placeholder) trong form khởi tạo lần đầu của lần deploy này.
 // Khi dùng cho công ty khác: xoá liên kết cũ trong app rồi dán link mới, KHÔNG cần sửa code.
 const DEFAULT_CONFIG = {
@@ -84,8 +87,10 @@ function initializeDataStructure() {
   return true;
 }
 
-/** Xoá cấu hình đã lưu — dùng khi muốn đổi sang bộ dữ liệu của công ty khác. */
+/** Xoá cấu hình đã lưu — dùng khi muốn đổi sang bộ dữ liệu của công ty khác. Chỉ Admin. */
 function resetConfig() {
+  const me = getCurrentUserInfo();
+  if (!me.canAdmin) throw new Error('Chỉ Admin được đổi liên kết dữ liệu.');
   PropertiesService.getScriptProperties().deleteProperty(CONFIG_KEY);
   return true;
 }
@@ -95,6 +100,7 @@ function resetConfig() {
 // =====================================================================
 const TABLES_SCHEMA = {
   DM_CONG:            ['_id','TenCongty','DiaChi','MST','SoDT','DaiDienPhapLuat'],
+  DM_NGUOIDUNG:       ['_id','Email','HoTen','VaiTro','ChoPhepDuyet','ChoPhepThaoTac','TrangThai','NgayCap'],
 
   DM_NHANVIEN:        ['_id','MaNV','TenNhanVien','SoCCCD','NgayVaoHeThong','TrangThai'],
 
@@ -134,15 +140,16 @@ const TABLES_SCHEMA = {
                             'LoaiPhuLuc','HieuLucTuNgay','GhiChu'],
   CT_NOIQUY:              ['_id','_parentId','Ngay','NoiDungViPham','TinhTrangXuLy','NoiDungXuLy'],
   CT_KHENTHUONG:          ['_id','_parentId','Ngay','HinhThucKhenThuong','LyDo','GiaTri','GhiChu'],
+  CT_TAILIEU:             ['_id','_parentId','LoaiTaiLieu','TenTaiLieu','File','NgayTaiLieu','GhiChu'],
 };
 
 // Bảng nào thuộc sheet DM_CONGCTY_HAK, bảng nào thuộc THONGTINNHANSU_HAK
-const COMPANY_TABLES = ['DM_CONG','DM_CHUCVU','DM_PHONGBAN','DM_LUONG','DM_PHUCAP','DM_TANGCA',
+const COMPANY_TABLES = ['DM_CONG','DM_NGUOIDUNG','DM_CHUCVU','DM_PHONGBAN','DM_LUONG','DM_PHUCAP','DM_TANGCA',
   'DM_HOTRO','DM_BAOHIEM','DM_TNCN','CT_BACTHUE_TNCN','DM_CC','DM_GT_TNCN'];
 const NHANSU_TABLES = ['DM_NHANVIEN','CT_THONGTINCANHAN','CT_TRINHDOHOCVAN','CT_NHANTHAN','CT_THONGTINTHANHTOAN',
   'CT_SUCKHOE','CT_THONGTINLIENHE','CT_THONGTINNGHENGHIEP','CT_QUATRINHCONGTAC','CT_QUATRINHLAMVIEC',
   'CT_KHAMSUCKHOE','CT_QUYENLOIPHEP','CT_NGHIPHEP','CT_NGHIOM','CT_CHITIETHOPDONG','CT_NOIQUY',
-  'CT_KHENTHUONG'];
+  'CT_KHENTHUONG','CT_TAILIEU'];
 
 // Bảng danh mục có cơ chế "mã trùng -> dòng cũ tự đóng Hiệu lực đến"
 const VERSIONED_TABLES = {
@@ -157,8 +164,113 @@ const SINGLETON_TABLES = ['DM_CONG'];
 
 // TOÀN BỘ các bảng đi qua cơ chế "Nháp -> Duyệt": Thêm/Sửa/Xóa đều lưu vào Draft_NHANSU_HAK trước,
 // phải có người bấm "Duyệt" mới thật sự ghi vào bản chính (DM_CONGCTY_HAK / THONGTINNHANSU_HAK).
-const DRAFT_TABLES = Object.keys(TABLES_SCHEMA);
+const DRAFT_TABLES = Object.keys(TABLES_SCHEMA).filter(t => t !== 'DM_CONG' && t !== 'DM_NGUOIDUNG');
 const DRAFT_META_HEADERS = ['DraftRowId','TrangThaiDuyet','HanhDong','NguoiTao','ThoiGianTao','NguoiDuyet','ThoiGianDuyet'];
+
+// =====================================================================
+// 1.5) PHÂN QUYỀN NGƯỜI DÙNG — Admin -> Quản lý -> Nhân viên
+// =====================================================================
+/** Xác định người đang mở app là ai và có quyền gì. Tự động cấp quyền Admin cho ADMIN_EMAIL
+ *  nếu bảng người dùng còn trống (lần chạy đầu tiên). */
+function getCurrentUserInfo() {
+  let email = '';
+  try { email = Session.getActiveUser().getEmail() || ''; } catch (e) { email = ''; }
+  const base = { email, role: null, hoTen: '', canAdmin: false, canApprove: false, canEdit: false, canManageUsers: false };
+  if (!email) return Object.assign(base, { error: 'Không xác định được tài khoản Google đang đăng nhập.' });
+
+  const cfg = getConfig_();
+  if (!cfg) return Object.assign(base, { bootstrapPending: true }); // chưa cấu hình liên kết -> chưa có chỗ lưu người dùng
+
+  const sheet = getOrCreateSheet_('DM_NGUOIDUNG');
+  let users = sheetToObjects_(sheet);
+
+  if (users.length === 0 && email.toLowerCase() === ADMIN_EMAIL.toLowerCase()) {
+    const row = { _id: uid_(), Email: email, HoTen: 'Quản trị viên', VaiTro: 'Admin',
+      ChoPhepDuyet: '', ChoPhepThaoTac: '', TrangThai: 'Hoạt động',
+      NgayCap: Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd') };
+    saveRow('DM_NGUOIDUNG', row);
+    users = [row];
+  }
+
+  const me = users.find(u => String(u.Email || '').toLowerCase() === email.toLowerCase());
+  if (!me || me.TrangThai === 'Khóa') return Object.assign(base, { denied: true });
+
+  const truthy = v => v === true || v === 'true' || v === 'TRUE';
+  const role = me.VaiTro;
+  const canAdmin = role === 'Admin';
+  const canApprove = canAdmin || (role === 'Quản lý' && truthy(me.ChoPhepDuyet));
+  const canEdit = role === 'Nhân viên' && truthy(me.ChoPhepThaoTac);
+  const canManageUsers = canAdmin || role === 'Quản lý';
+  return { email, role, hoTen: me.HoTen || '', canAdmin, canApprove, canEdit, canManageUsers };
+}
+
+/** Danh sách người dùng — Admin thấy tất cả, Quản lý chỉ thấy Nhân viên. */
+function listUsers() {
+  const me = getCurrentUserInfo();
+  if (!me.canManageUsers) throw new Error('Bạn không có quyền xem danh sách người dùng.');
+  const sheet = getOrCreateSheet_('DM_NGUOIDUNG');
+  let users = sheetToObjects_(sheet);
+  if (me.role === 'Quản lý') users = users.filter(u => u.VaiTro === 'Nhân viên');
+  return users;
+}
+
+/** Thêm/sửa quyền 1 người dùng. Quản lý chỉ được thao tác với vai trò Nhân viên. */
+function saveUserPermission(row) {
+  const me = getCurrentUserInfo();
+  if (!me.canManageUsers) throw new Error('Bạn không có quyền phân quyền người dùng.');
+  if (me.role === 'Quản lý' && row.VaiTro !== 'Nhân viên') {
+    throw new Error('Quản lý chỉ được phân quyền cho Nhân viên.');
+  }
+  if (!row._id) row._id = uid_();
+  if (!row.NgayCap) row.NgayCap = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
+  saveRow('DM_NGUOIDUNG', row);
+  return true;
+}
+
+function deleteUserPermission(id) {
+  const me = getCurrentUserInfo();
+  if (!me.canManageUsers) throw new Error('Bạn không có quyền phân quyền người dùng.');
+  deleteRow('DM_NGUOIDUNG', id);
+  return true;
+}
+
+/** Đổi thông tin hồ sơ công ty — chỉ Admin. Ghi thẳng vào bản chính (Admin là cấp cao nhất, không cần duyệt). */
+function updateCompanyProfile(row) {
+  const me = getCurrentUserInfo();
+  if (!me.canAdmin) throw new Error('Chỉ Admin được đổi thông tin công ty.');
+  saveRow('DM_CONG', row);
+  return true;
+}
+
+// =====================================================================
+// 1.6) TÀI LIỆU ĐÍNH KÈM — tải lên Google Drive (dùng DriveApp, có sẵn, không cần bật thêm dịch vụ)
+// =====================================================================
+const ATTACHMENT_FOLDER_PROP = 'ATTACHMENT_FOLDER_ID';
+
+function getAttachmentFolder_() {
+  const props = PropertiesService.getScriptProperties();
+  const folderId = props.getProperty(ATTACHMENT_FOLDER_PROP);
+  if (folderId) {
+    try { return DriveApp.getFolderById(folderId); } catch (e) { /* thư mục cũ bị xoá -> tạo lại bên dưới */ }
+  }
+  const folder = DriveApp.createFolder('HAK_NhanSu_TaiLieuDinhKem');
+  props.setProperty(ATTACHMENT_FOLDER_PROP, folder.getId());
+  return folder;
+}
+
+/** Tải 1 file (đã mã hoá base64 từ trình duyệt) lên Google Drive, trả về link xem file.
+ *  Chỉ người có quyền thao tác (canEdit) mới được gọi — cùng quyền với việc thêm/sửa dữ liệu. */
+function uploadAttachment(base64Data, filename, mimeType) {
+  const me = getCurrentUserInfo();
+  if (!me.canEdit) throw new Error('Bạn không có quyền tải tài liệu lên.');
+  if (!base64Data) throw new Error('Không có dữ liệu file.');
+  const folder = getAttachmentFolder_();
+  const bytes = Utilities.base64Decode(base64Data);
+  const blob = Utilities.newBlob(bytes, mimeType || 'application/octet-stream', filename || 'tai-lieu');
+  const file = folder.createFile(blob);
+  try { file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW); } catch (e) { /* bỏ qua nếu domain hạn chế chia sẻ ra ngoài */ }
+  return { url: file.getUrl(), name: file.getName(), id: file.getId() };
+}
 
 // =====================================================================
 // 2) WEB APP ENTRY POINT
@@ -435,10 +547,12 @@ function batchReadSpreadsheet_(spreadsheetId, tableNames) {
   return result;
 }
 
-/** Ghi 1 thay đổi (Thêm/Sửa/Xóa) vào bản NHÁP — KHÔNG đụng vào bản chính.
- *  Trả về id của dòng nháp vừa tạo, để tra cứu/hủy nếu cần. */
+/** Ghi 1 thay đổi (Thêm/Sửa/Xóa) vào bản NHÁP — KHÔNG đụng vào bản chính. Chỉ Nhân viên được cấp
+ *  quyền thao tác (ChoPhepThaoTac) mới được gọi hàm này. Trả về id của dòng nháp vừa tạo. */
 function saveDraftRow(table, row, action) {
   if (!TABLES_SCHEMA[table]) throw new Error('Bảng không tồn tại: ' + table);
+  const me = getCurrentUserInfo();
+  if (!me.canEdit) throw new Error('Bạn không có quyền thêm/sửa dữ liệu. Liên hệ Quản lý để được cấp quyền thao tác.');
   if (!row._id) row._id = uid_();
   const ss = getDraftSpreadsheet_();
   const headers = TABLES_SCHEMA[table].concat(DRAFT_META_HEADERS);
@@ -532,6 +646,8 @@ function setDraftStatus_(sheet, headers, rowIndex, status) {
 /** Duyệt 1 bản nháp — ghi thật vào bản chính (DM_CONGCTY_HAK / THONGTINNHANSU_HAK), rồi đánh dấu
  *  dòng nháp là "Đã duyệt". */
 function approveDraft(table, draftRowId) {
+  const me = getCurrentUserInfo();
+  if (!me.canApprove) throw new Error('Bạn không có quyền duyệt.');
   const found = findDraftRow_(table, draftRowId);
   if (!found) throw new Error('Không tìm thấy bản nháp.');
   if (found.action === 'Xóa') {
@@ -545,10 +661,36 @@ function approveDraft(table, draftRowId) {
 
 /** Từ chối 1 bản nháp — KHÔNG ghi vào bản chính, chỉ đánh dấu trạng thái. */
 function rejectDraft(table, draftRowId) {
+  const me = getCurrentUserInfo();
+  if (!me.canApprove) throw new Error('Bạn không có quyền duyệt.');
   const found = findDraftRow_(table, draftRowId);
   if (!found) throw new Error('Không tìm thấy bản nháp.');
   setDraftStatus_(found.sheet, found.headers, found.rowIndex, 'Từ chối');
   return true;
+}
+
+/** Nạp dữ liệu ban đầu hàng loạt — chỉ Admin. Ghi thẳng vào bản chính (không qua nháp, vì đây là
+ *  bước khởi tạo dữ liệu lần đầu). dataByTable = { TÊN_BẢNG: [ {cột: giá trị, ...}, ... ] }. */
+function bulkImportData(dataByTable) {
+  const me = getCurrentUserInfo();
+  if (!me.canAdmin) throw new Error('Chỉ Admin được tải dữ liệu ban đầu.');
+  const summary = {};
+  Object.keys(dataByTable || {}).forEach(table => {
+    if (!TABLES_SCHEMA[table] || table === 'DM_NGUOIDUNG') return; // bỏ qua sheet lạ / không cho nạp người dùng qua đường này
+    const rows = dataByTable[table];
+    if (!Array.isArray(rows) || rows.length === 0) return;
+    const headers = TABLES_SCHEMA[table];
+    const arrays = rows.map(r => {
+      if (!r._id) r._id = uid_();
+      return headers.map(h => (r[h] === undefined || r[h] === null || r[h] === '') ? '' : r[h]);
+    });
+    const sheet = getOrCreateSheet_(table);
+    const startRow = sheet.getLastRow() + 1;
+    sheet.getRange(startRow, 1, arrays.length, headers.length).setValues(arrays);
+    applyFormulasToAllRows_(table); // tự tính lại "Hiệu lực đến" cho các bảng có versioning
+    summary[table] = arrays.length;
+  });
+  return summary;
 }
 
 function saveRow(table, row) {

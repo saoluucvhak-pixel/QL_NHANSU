@@ -11,6 +11,23 @@ function runServer(fnName, ...args){
   });
 }
 
+/** Đọc 1 File từ input[type=file] thành base64 rồi gửi lên server để lưu vào Google Drive.
+ *  Trả về {url, name, id} của file trên Drive. */
+function uploadFileField(file){
+  return new Promise((resolve, reject)=>{
+    const reader = new FileReader();
+    reader.onload = async (evt)=>{
+      try{
+        const base64 = String(evt.target.result).split(',')[1] || '';
+        const result = await runServer('uploadAttachment', base64, file.name, file.type || 'application/octet-stream');
+        resolve(result);
+      }catch(e){ reject(e); }
+    };
+    reader.onerror = () => reject(new Error('Không đọc được file.'));
+    reader.readAsDataURL(file);
+  });
+}
+
 /* =========================================================================
    COMPUTED-FIELD HELPERS
    ========================================================================= */
@@ -397,7 +414,7 @@ const TABLES = {
     columns:["TuNgay","DenNgay","SoNgayNghi","TrangThaiDuyet"],
   },
   CT_CHITIETHOPDONG: {
-    label:"Chi tiết hợp đồng", parent:"CT_QUATRINHLAMVIEC", level:"hdld", icon:"📑", drill:true, drillLevel:"hopdong",
+    label:"Chi tiết hợp đồng", parent:"CT_QUATRINHLAMVIEC", level:"hdld", icon:"📑",
     desc:"Điều khoản hợp đồng + phân công thực hiện theo từng lần ký / phụ lục — gộp chung 1 bước, tham chiếu trực tiếp danh mục phòng ban/lương/chức vụ/bảo hiểm/thuế TNCN/phụ cấp/hỗ trợ/tăng ca.",
     fields:[
       {key:"MaCongTac", label:"Mã công tác", type:"text", required:true},
@@ -424,7 +441,7 @@ const TABLES = {
   },
 
   CT_NOIQUY: {
-    label:"Nội quy / kỷ luật", parent:"CT_CHITIETHOPDONG", level:"hopdong", icon:"⚠️",
+    label:"Nội quy / kỷ luật", parent:"CT_QUATRINHLAMVIEC", level:"hdld", icon:"⚠️",
     desc:"Vi phạm nội quy và xử lý kỷ luật.",
     fields:[
       {key:"Ngay", label:"Ngày", type:"date", required:true},
@@ -435,7 +452,7 @@ const TABLES = {
     columns:["Ngay","NoiDungViPham","TinhTrangXuLy"],
   },
   CT_KHENTHUONG: {
-    label:"Khen thưởng", parent:"CT_CHITIETHOPDONG", level:"hopdong", icon:"🏆",
+    label:"Khen thưởng", parent:"CT_QUATRINHLAMVIEC", level:"hdld", icon:"🏆",
     desc:"Ghi nhận khen thưởng — đối xứng với Nội quy.",
     fields:[
       {key:"Ngay", label:"Ngày", type:"date", required:true},
@@ -446,11 +463,22 @@ const TABLES = {
     ],
     columns:["Ngay","HinhThucKhenThuong","LyDo","GiaTri"],
   },
+  CT_TAILIEU: {
+    label:"Tài liệu đính kèm", parent:"CT_QUATRINHLAMVIEC", level:"hdld", icon:"📎",
+    desc:"CCCD, giấy khám sức khỏe, bằng cấp và các giấy tờ khác — file được lưu trên Google Drive của tài khoản đang chạy hệ thống.",
+    fields:[
+      {key:"LoaiTaiLieu", label:"Loại tài liệu", type:"select", options:["CCCD","Giấy khám sức khỏe","Bằng cấp","Khác"], required:true},
+      {key:"TenTaiLieu", label:"Tên tài liệu", type:"text", required:true},
+      {key:"File", label:"File đính kèm", type:"file", required:true, hint:"Tối đa 5MB. Ảnh (jpg/png) hoặc PDF."},
+      {key:"NgayTaiLieu", label:"Ngày tài liệu", type:"date"},
+      {key:"GhiChu", label:"Ghi chú", type:"textarea"},
+    ],
+    columns:["LoaiTaiLieu","TenTaiLieu","File","NgayTaiLieu"],
+  },
 };
 
 const EMPLOYEE_TABS = Object.keys(TABLES).filter(k => TABLES[k].parent === "DM_NHANVIEN");
 const HDLD_TABS = Object.keys(TABLES).filter(k => TABLES[k].parent === "CT_QUATRINHLAMVIEC");
-const HOPDONG_TABS = Object.keys(TABLES).filter(k => TABLES[k].parent === "CT_CHITIETHOPDONG");
 const DANHMUC_TABLES = Object.keys(TABLES).filter(k => TABLES[k].group === "danhmuc");
 const WIZARD_STEPS = [
   {key:'base', table:'DM_NHANVIEN', title:'Thông tin cơ bản', required:true, icon:'👤'},
@@ -483,6 +511,11 @@ let showInactive = false;
 let chartRefs = {};
 let PENDING_DRAFTS = {};   // { table: [rows...] } — chỉ các dòng "Chờ duyệt"
 let PENDING_COUNT = 0;
+let CURRENT_USER = null;   // {email, role, hoTen, canAdmin, canApprove, canEdit, canManageUsers}
+let USER_LIST = [];        // dùng cho màn "Người dùng"
+let userModalState = null; // {row} hoặc null
+let importModalOpen = false;
+let IMPORT_STATE = { busy:false, preview:null, error:null };
 
 function uid(){ return 'id_' + Math.random().toString(36).slice(2,10) + Date.now().toString(36); }
 function fmt(d){ return d.toISOString().slice(0,10); }
@@ -495,6 +528,10 @@ async function loadAll(){
     }
     if(!CONFIG_STATUS.initialized){
       LOADED = true; render(); return; // hiện màn hình khởi tạo cấu trúc dữ liệu
+    }
+    CURRENT_USER = await runServer('getCurrentUserInfo');
+    if(!CURRENT_USER.role){
+      LOADED = true; render(); return; // chưa có quyền / bị khoá / chưa được cấp tài khoản
     }
     DATA = await runServer('getAllData');
     LOADED = true;
@@ -716,6 +753,11 @@ function render(){
     nudgeResize();
     return;
   }
+  if(CURRENT_USER && !CURRENT_USER.role){
+    app.innerHTML = renderAccessDeniedScreen();
+    nudgeResize();
+    return;
+  }
   if(LOAD_ERROR){
     app.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;min-height:100vh;width:100%;padding:30px;">
       <div style="max-width:520px;background:#fff;border:1px solid #F0DCB8;border-radius:12px;padding:24px;">
@@ -734,6 +776,8 @@ function render(){
       <div id="content">${renderContent()}</div>
     </div>
     ${modalState ? (modalState.wizard ? renderWizardModal() : renderModal()) : ''}
+    ${userModalState ? renderUserModal() : ''}
+    ${importModalOpen ? renderImportModal() : ''}
     ${systemMenuOpen ? renderSystemMenu() : ''}
     ${toastMsg ? `<div class="toast">${esc(toastMsg)}</div>` : ''}
   `;
@@ -742,6 +786,21 @@ function render(){
   if(nav.view==='reports' && nav.reportTab==='leave'){
     requestAnimationFrame(initLeaveCharts);
   }
+}
+
+function renderAccessDeniedScreen(){
+  const u = CURRENT_USER || {};
+  let msg = 'Tài khoản Google của bạn chưa được cấp quyền sử dụng hệ thống này.';
+  if(u.error) msg = u.error;
+  else if(u.denied) msg = `Tài khoản <b>${esc(u.email)}</b> chưa được cấp quyền (hoặc đã bị khoá). Liên hệ Admin/Quản lý để được thêm vào danh sách người dùng.`;
+  return `
+  <div style="min-height:100vh;width:100%;display:flex;align-items:center;justify-content:center;background:var(--sidebar-bg);padding:24px;">
+    <div style="max-width:480px;width:100%;background:#fff;border-radius:16px;padding:32px;box-shadow:0 24px 64px rgba(0,0,0,.3);text-align:center;">
+      <div style="font-size:40px;margin-bottom:10px;">🔒</div>
+      <div style="font-weight:800;font-size:17px;color:var(--text);margin-bottom:10px;">Không có quyền truy cập</div>
+      <div style="font-size:13.5px;color:var(--text-mute);line-height:1.6;">${msg}</div>
+    </div>
+  </div>`;
 }
 
 function renderSetupScreen(){
@@ -826,10 +885,49 @@ function renderSystemMenu(){
           🚀&nbsp;&nbsp;Khởi tạo / đồng bộ lại cấu trúc dữ liệu
         </button>
         <div class="hint" style="margin:-4px 0 6px 4px;">Tạo lại các sheet còn thiếu và nạp danh mục thật nếu đang trống. Không xoá dữ liệu đã có.</div>
+
+        <button class="btn btn-ghost" style="width:100%;justify-content:flex-start;padding:14px 16px;" data-action="menu-download-template">
+          📄&nbsp;&nbsp;Tải file mẫu để nhập dữ liệu ban đầu
+        </button>
+        <div class="hint" style="margin:-4px 0 6px 4px;">File Excel có sẵn đúng tên sheet + tiêu đề cột cho mọi bảng — điền dữ liệu vào rồi dùng mục bên dưới để tải lên.</div>
+
+        <button class="btn btn-ghost" style="width:100%;justify-content:flex-start;padding:14px 16px;" data-action="menu-open-import">
+          📥&nbsp;&nbsp;Tải dữ liệu ban đầu từ file Excel
+        </button>
+        <div class="hint" style="margin:-4px 0 6px 4px;">Nạp hàng loạt dữ liệu đã điền theo file mẫu — ghi thẳng vào bản chính (không qua nháp), dùng khi khởi tạo hệ thống lần đầu.</div>
+
         <button class="btn btn-ghost" style="width:100%;justify-content:flex-start;padding:14px 16px;" data-action="menu-change-links">
           🔗&nbsp;&nbsp;Đổi liên kết dữ liệu (dùng cho công ty khác)
         </button>
         <div class="hint" style="margin:-4px 0 0 4px;">Quay lại màn hình nhập link — dữ liệu công ty hiện tại không bị xoá.</div>
+      </div>
+    </div>
+  </div>`;
+}
+
+function renderImportModal(){
+  const busy = IMPORT_STATE.busy;
+  return `<div class="overlay" data-action="close-import-modal-overlay">
+    <div class="modal" style="width:520px;">
+      <div class="modal-head">
+        <div class="modal-title">📥 Tải dữ liệu ban đầu</div>
+        <button class="modal-close" data-action="close-import-modal">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="field">
+          <label>Chọn file Excel đã điền theo file mẫu</label>
+          <input type="file" id="import-file-input" accept=".xlsx,.xls">
+          <div class="hint">Tên mỗi sheet trong file phải khớp đúng tên bảng (VD: DM_CHUCVU, DM_NHANVIEN, CT_QUATRINHLAMVIEC...) — sheet nào không khớp tên sẽ tự động bị bỏ qua. Với sheet hồ sơ nhân sự: cột <b>MaNV</b> để ghép đúng nhân viên, cột <b>SoHDLD</b> để ghép đúng hợp đồng lao động (xem file mẫu).</div>
+        </div>
+        ${IMPORT_STATE.preview ? `<div class="callout">${IMPORT_STATE.preview}</div>` : ''}
+        ${IMPORT_STATE.error ? `<div style="background:#F8E4E2;color:var(--red);padding:10px 14px;border-radius:8px;font-size:12.5px;margin-bottom:10px;">⚠️ ${esc(IMPORT_STATE.error)}</div>` : ''}
+      </div>
+      <div class="modal-foot">
+        <div></div>
+        <div style="display:flex; gap:8px;">
+          <button class="btn btn-ghost" data-action="close-import-modal">Hủy</button>
+          <button class="btn btn-primary" data-action="run-import" ${busy?'disabled':''}>${busy?'Đang nạp…':'📥 Nạp dữ liệu'}</button>
+        </div>
       </div>
     </div>
   </div>`;
@@ -890,14 +988,18 @@ function renderSidebar(){
         </div>
       </div>
       ${employees.length===0 ? `<div style="padding:8px 16px; font-size:12.5px; color:#5E7391;">Chưa có nhân viên.</div>` : empListHtml}
-      <div class="nav-item" data-action="add-employee" style="color:#7FD3C6; font-weight:700;">
+      ${CURRENT_USER && CURRENT_USER.canEdit ? `<div class="nav-item" data-action="add-employee" style="color:#7FD3C6; font-weight:700;">
         <span>➕</span><span>Thêm nhân viên</span>
-      </div>
+      </div>` : ''}
     </div>
     <div class="nav-group" style="border-top:1px solid rgba(255,255,255,.07); padding-top:10px;">
-      <div class="nav-item" data-action="open-system-menu" style="color:#8A9A90;">
+      ${CURRENT_USER && CURRENT_USER.canManageUsers ? `<div class="nav-item ${nav.view==='users'?'active':''}" data-action="go-users" style="color:#8A9A90;">
+        <span>👥</span><span>Người dùng</span>
+      </div>` : ''}
+      ${CURRENT_USER && CURRENT_USER.canAdmin ? `<div class="nav-item" data-action="open-system-menu" style="color:#8A9A90;">
         <span>⚙️</span><span>Hệ thống</span>
-      </div>
+      </div>` : ''}
+      ${CURRENT_USER ? `<div style="padding:10px 16px 4px; font-size:11px; color:#5A6A5D;">${esc(CURRENT_USER.hoTen||CURRENT_USER.email)} · ${esc(CURRENT_USER.role)}</div>` : ''}
     </div>
   </div>`;
 }
@@ -924,21 +1026,19 @@ function renderTopbar(){
     crumbs = [{label:'Chờ duyệt', current:true}];
     pageTitle = 'Chờ duyệt';
     pageDesc = 'Mọi thêm/sửa/xóa (nhân sự & danh mục) đều nằm ở đây trước — chỉ vào bản chính sau khi được duyệt.';
-  } else if(nav.view==='employee' || nav.view==='hdld' || nav.view==='hopdong'){
+  } else if(nav.view==='users'){
+    crumbs = [{label:'Người dùng', current:true}];
+    pageTitle = 'Người dùng & phân quyền';
+    pageDesc = 'Quản lý tài khoản được phép đăng nhập và mức quyền của từng người.';
+  } else if(nav.view==='employee' || nav.view==='hdld'){
     const emp = getRow('DM_NHANVIEN', nav.empId);
     crumbs = [{label:'Nhân sự', action:'go-home'}, {label: emp ? emp.TenNhanVien : '(Nhân viên)', action:'go-employee', id: nav.empId}];
     pageTitle = emp ? emp.TenNhanVien : 'Nhân viên';
     pageDesc = `Mã NV ${emp?emp.MaNV:''} · Hồ sơ nhân sự đầy đủ theo từng nhóm dữ liệu.`;
-    if(nav.view==='hdld' || nav.view==='hopdong'){
+    if(nav.view==='hdld'){
       const hdld = getRow('CT_QUATRINHLAMVIEC', nav.hdldId);
-      crumbs.push({label: hdld ? ('HĐLĐ '+(hdld.SoHDLD||'')) : '(Hợp đồng)', action: nav.view==='hopdong' ? 'go-hdld':null, id:nav.hdldId, current: nav.view==='hdld'});
-      if(nav.view==='hdld'){ pageTitle = 'Hợp đồng ' + (hdld?hdld.SoHDLD:''); pageDesc = (hdld?hdld.HinhThucHDLD:'') + ' · Vào làm ' + (hdld?hdld.NgayVaoLam:''); }
-    }
-    if(nav.view==='hopdong'){
-      crumbs.push({label:'Chi tiết hợp đồng', current:true});
-      const hopdong = getRow('CT_CHITIETHOPDONG', nav.hopdongId);
-      pageTitle = 'Chi tiết hợp đồng';
-      pageDesc = (hopdong?hopdong.LoaiPhuLuc:'') + ' · Hiệu lực từ ' + (hopdong?hopdong.HieuLucTuNgay:'');
+      crumbs.push({label: hdld ? ('HĐLĐ '+(hdld.SoHDLD||'')) : '(Hợp đồng)', current:true});
+      pageTitle = 'Hợp đồng ' + (hdld?hdld.SoHDLD:''); pageDesc = (hdld?hdld.HinhThucHDLD:'') + ' · Vào làm ' + (hdld?hdld.NgayVaoLam:'');
     }
   }
 
@@ -961,9 +1061,9 @@ function renderContent(){
   if(nav.view==='tncnbac') return renderTncnBacView();
   if(nav.view==='reports') return renderReports();
   if(nav.view==='pending') return renderPendingView();
+  if(nav.view==='users') return renderUsersView();
   if(nav.view==='employee') return renderEmployeeView();
   if(nav.view==='hdld') return renderHdldView();
-  if(nav.view==='hopdong') return renderHopdongView();
   return '';
 }
 
@@ -982,8 +1082,8 @@ function renderHome(){
       <p>Toàn bộ dữ liệu đang lưu trực tiếp trên Google Sheet của bạn. Chọn một nhân viên ở thanh bên để xem hồ sơ đầy đủ, hoặc nạp thử 1 nhân viên mẫu để xem toàn bộ luồng dữ liệu.</p>
     </div>
     <div class="welcome-actions">
-      <button class="btn btn-invert" data-action="seed-demo">🧪 Nạp nhân viên mẫu</button>
-      <button class="btn btn-primary" data-action="add-employee">➕ Thêm nhân viên</button>
+      ${CURRENT_USER && CURRENT_USER.canEdit ? `<button class="btn btn-invert" data-action="seed-demo">🧪 Nạp nhân viên mẫu</button>
+      <button class="btn btn-primary" data-action="add-employee">➕ Thêm nhân viên</button>` : ''}
     </div>
   </div>
   <div class="stat-grid">
@@ -996,7 +1096,7 @@ function renderHome(){
   <div class="panel">
     <div class="panel-head">
       <label class="check-row"><input type="checkbox" id="chk-inactive" ${showInactive?'checked':''}> Hiện cả người đã nghỉ việc</label>
-      <button class="btn btn-primary" data-action="add-employee">➕ Thêm nhân viên</button>
+      ${CURRENT_USER && CURRENT_USER.canEdit ? `<button class="btn btn-primary" data-action="add-employee">➕ Thêm nhân viên</button>` : ''}
     </div>
     ${renderEmployeeTable()}
   </div>`;
@@ -1006,8 +1106,8 @@ function renderEmployeeTable(){
   const all = DATA.DM_NHANVIEN||[];
   const emp = all.filter(e => showInactive || e.TrangThai!=='Đã nghỉ việc');
   if(all.length===0){
-    return `<div class="empty-state"><div class="icon">🗂️</div><div class="msg">Chưa có nhân viên nào. Bắt đầu bằng cách thêm nhân viên đầu tiên hoặc nạp nhân viên mẫu.</div>
-      <button class="btn btn-primary" data-action="add-employee">➕ Thêm nhân viên</button></div>`;
+    return `<div class="empty-state"><div class="icon">🗂️</div><div class="msg">Chưa có nhân viên nào${CURRENT_USER && CURRENT_USER.canEdit ? '. Bắt đầu bằng cách thêm nhân viên đầu tiên hoặc nạp nhân viên mẫu.' : '.'}</div>
+      ${CURRENT_USER && CURRENT_USER.canEdit ? `<button class="btn btn-primary" data-action="add-employee">➕ Thêm nhân viên</button>` : ''}</div>`;
   }
   return `<div class="count-note">${emp.length} nhân viên${!showInactive && all.length>emp.length ? ` (đã ẩn ${all.length-emp.length} người nghỉ việc)`:''}.</div>
   <div class="table-wrap"><table>
@@ -1027,9 +1127,10 @@ function renderEmployeeTable(){
           <td>${esc(scheme)}</td>
           <td><span class="tag ${tagClass(e.TrangThai)}">${esc(e.TrangThai)}</span></td>
           <td class="actions">
+            ${CURRENT_USER && CURRENT_USER.canEdit ? `
             <button class="btn-link-text" data-action="edit-row" data-table="DM_NHANVIEN" data-id="${e._id}">Sửa</button>
             &nbsp;·&nbsp;
-            <button class="btn-danger-text" data-action="delete-row" data-table="DM_NHANVIEN" data-id="${e._id}">Xóa</button>
+            <button class="btn-danger-text" data-action="delete-row" data-table="DM_NHANVIEN" data-id="${e._id}">Xóa</button>` : ''}
           </td>
         </tr>`;}).join('')}
     </tbody>
@@ -1037,18 +1138,25 @@ function renderEmployeeTable(){
 }
 
 /* ---------------- GENERIC FLAT / CHILD TABLE VIEW ---------------- */
+function canEditTable(table){
+  if(!CURRENT_USER) return false;
+  if(table==='DM_CONG') return !!CURRENT_USER.canAdmin;
+  return !!CURRENT_USER.canEdit;
+}
+
 function renderTableView(table, parentId){
   const cfg = TABLES[table];
   const rows = rowsOf(table, parentId);
   const cols = cfg.columns;
   const isDrill = !!cfg.drill;
+  const canEditThis = canEditTable(table);
 
   let body;
   if(rows.length===0){
     body = `<div class="empty-state">
       <div class="icon">${cfg.icon}</div>
       <div class="msg">Chưa có dữ liệu ${cfg.label.toLowerCase()}.</div>
-      <button class="btn btn-primary" data-action="add-row" data-table="${table}" ${parentId?`data-parentid="${parentId}"`:''}>➕ Thêm ${cfg.label.toLowerCase()}</button>
+      ${canEditThis ? `<button class="btn btn-primary" data-action="add-row" data-table="${table}" ${parentId?`data-parentid="${parentId}"`:''}>➕ Thêm ${cfg.label.toLowerCase()}</button>` : `<div style="font-size:12.5px;color:var(--text-mute);">Bạn không có quyền thêm dữ liệu ở đây.</div>`}
     </div>`;
   } else {
     body = `<div class="table-wrap"><table>
@@ -1064,13 +1172,15 @@ function renderTableView(table, parentId){
               const rawVal = f.computed ? f.computeFn(r, table) : r[c];
               const val = fieldDisplay(f, rawVal);
               if(f.tag) return `<td><span class="tag ${tagClass(rawVal)}">${esc(val)}</span></td>`;
+              if(f.type==='file') return `<td>${rawVal ? `<a href="${esc(rawVal)}" target="_blank" rel="noopener" class="btn-link-text">📎 Xem file</a>` : '—'}</td>`;
               return `<td>${esc(val)}</td>`;
             }).join('')}
             <td class="actions">
               ${isDrill ? `<button class="btn btn-sm btn-ghost" data-action="go-drill" data-table="${table}" data-id="${r._id}">Xem chi tiết →</button>` : ''}
+              ${canEditThis ? `
               <button class="btn-link-text" data-action="edit-row" data-table="${table}" data-id="${r._id}">Sửa</button>
               &nbsp;·&nbsp;
-              <button class="btn-danger-text" data-action="delete-row" data-table="${table}" data-id="${r._id}">Xóa</button>
+              <button class="btn-danger-text" data-action="delete-row" data-table="${table}" data-id="${r._id}">Xóa</button>` : ''}
             </td>
           </tr>`).join('')}
       </tbody>
@@ -1085,7 +1195,7 @@ function renderTableView(table, parentId){
         <div class="panel-title">${cfg.icon} ${cfg.label}</div>
         <div class="panel-desc">${esc(cfg.desc)}</div>
       </div>
-      ${(rows.length>0 && !cfg.singleton) ? `<button class="btn btn-primary" data-action="add-row" data-table="${table}" ${parentId?`data-parentid="${parentId}"`:''}>➕ Thêm</button>` : ''}
+      ${(rows.length>0 && !cfg.singleton && canEditThis) ? `<button class="btn btn-primary" data-action="add-row" data-table="${table}" ${parentId?`data-parentid="${parentId}"`:''}>➕ Thêm</button>` : ''}
     </div>
     ${body}
   </div>`;
@@ -1111,7 +1221,7 @@ function renderEmployeeView(){
         <div class="panel-title">👤 ${esc(emp.TenNhanVien)} <span class="pk-badge" style="margin-left:6px;">${esc(emp.MaNV)}</span></div>
         <div class="panel-desc">CCCD ${esc(emp.SoCCCD)} · <span class="tag ${tagClass(emp.TrangThai)}">${esc(emp.TrangThai)}</span></div>
       </div>
-      <button class="btn btn-ghost btn-sm" data-action="edit-row" data-table="DM_NHANVIEN" data-id="${emp._id}">✎ Sửa hồ sơ</button>
+      ${CURRENT_USER && CURRENT_USER.canEdit ? `<button class="btn btn-ghost btn-sm" data-action="edit-row" data-table="DM_NHANVIEN" data-id="${emp._id}">✎ Sửa hồ sơ</button>` : ''}
     </div>
   </div>
   <div class="tabbar">${tabsHtml}</div>
@@ -1136,36 +1246,11 @@ function renderHdldView(){
         <div class="panel-title">📄 Hợp đồng ${esc(hdld.SoHDLD)} <span style="font-weight:500;color:var(--text-mute);">— ${esc(emp.TenNhanVien)}</span></div>
         <div class="panel-desc">${esc(hdld.HinhThucHDLD)} · Vào làm ${esc(hdld.NgayVaoLam||'—')}</div>
       </div>
-      <button class="btn btn-ghost btn-sm" data-action="edit-row" data-table="CT_QUATRINHLAMVIEC" data-id="${hdld._id}">✎ Sửa hợp đồng</button>
+      ${CURRENT_USER && CURRENT_USER.canEdit ? `<button class="btn btn-ghost btn-sm" data-action="edit-row" data-table="CT_QUATRINHLAMVIEC" data-id="${hdld._id}">✎ Sửa hợp đồng</button>` : ''}
     </div>
   </div>
   <div class="tabbar">${tabsHtml}</div>
   ${renderTableView(tab, hdld._id)}
-  `;
-}
-
-/* ---------------- HOPDONG DETAIL VIEW ---------------- */
-function renderHopdongView(){
-  const emp = getRow('DM_NHANVIEN', nav.empId);
-  const hopdong = getRow('CT_CHITIETHOPDONG', nav.hopdongId);
-  if(!emp || !hopdong) return `<div class="empty-state"><div class="icon">🚫</div><div class="msg">Không tìm thấy chi tiết hợp đồng.</div></div>`;
-  const tab = nav.tab || HOPDONG_TABS[0];
-  const tabsHtml = HOPDONG_TABS.map(t=>`
-    <div class="tab ${tab===t?'active':''}" data-action="set-hopdong-tab" data-tab="${t}">${TABLES[t].icon} ${TABLES[t].label}</div>
-  `).join('');
-
-  return `
-  <div class="panel" style="margin-bottom:18px;">
-    <div class="panel-head">
-      <div>
-        <div class="panel-title">📑 ${esc(hopdong.LoaiPhuLuc||'Chi tiết hợp đồng')} <span style="font-weight:500;color:var(--text-mute);">— ${esc(emp.TenNhanVien)}</span></div>
-        <div class="panel-desc">Hiệu lực từ ${esc(hopdong.HieuLucTuNgay||'—')}</div>
-      </div>
-      <button class="btn btn-ghost btn-sm" data-action="edit-row" data-table="CT_CHITIETHOPDONG" data-id="${hopdong._id}">✎ Sửa</button>
-    </div>
-  </div>
-  <div class="tabbar">${tabsHtml}</div>
-  ${renderTableView(tab, hopdong._id)}
   `;
 }
 
@@ -1218,14 +1303,16 @@ function renderPendingView(){
               <td><span class="tag ${actionCls}">${esc(r.HanhDong)}</span></td>
               ${cols.map(c=>{
                 const f = cfg.fields.find(x=>x.key===c);
+                if(f.type==='file') return `<td>${r[c] ? `<a href="${esc(r[c])}" target="_blank" rel="noopener" class="btn-link-text">📎 Xem file</a>` : '—'}</td>`;
                 return `<td>${esc(fieldDisplay(f, r[c]))}</td>`;
               }).join('')}
               <td>${esc(r.NguoiTao||'—')}</td>
               <td>${esc(r.ThoiGianTao||'—')}</td>
               <td class="actions">
+                ${CURRENT_USER && CURRENT_USER.canApprove ? `
                 <button class="btn-link-text" data-action="approve-draft" data-table="${table}" data-id="${r.DraftRowId}">✅ Duyệt</button>
                 &nbsp;·&nbsp;
-                <button class="btn-danger-text" data-action="reject-draft" data-table="${table}" data-id="${r.DraftRowId}">❌ Từ chối</button>
+                <button class="btn-danger-text" data-action="reject-draft" data-table="${table}" data-id="${r.DraftRowId}">❌ Từ chối</button>` : `<span style="font-size:12px;color:var(--text-mute);">Chỉ xem</span>`}
               </td>
             </tr>`;
           }).join('')}
@@ -1233,6 +1320,115 @@ function renderPendingView(){
       </table></div>
     </div>`;
   }).join('');
+}
+
+/* =========================================================================
+   NGƯỜI DÙNG — quản lý phân quyền (Admin quản Quản lý; Quản lý quản Nhân viên)
+   ========================================================================= */
+async function refreshUsers(){
+  try{ USER_LIST = await runServer('listUsers'); }
+  catch(e){ USER_LIST = []; showToast('⚠️ Lỗi tải danh sách người dùng: ' + (e.message||e)); }
+}
+function roleTagClass(role){
+  if(role==='Admin') return 'tag-red';
+  if(role==='Quản lý') return 'tag-amber';
+  return 'tag-green';
+}
+function renderUsersView(){
+  const canAddQuanLy = CURRENT_USER && CURRENT_USER.canAdmin;
+  return `<div class="panel">
+    <div class="panel-head">
+      <div>
+        <div class="panel-title">👥 Người dùng & phân quyền</div>
+        <div class="panel-desc">${canAddQuanLy ? 'Bạn là Admin — có thể thêm/sửa tài khoản Quản lý và Nhân viên.' : 'Bạn là Quản lý — chỉ được thêm/sửa tài khoản Nhân viên.'}</div>
+      </div>
+      <button class="btn btn-primary" data-action="add-user">➕ Thêm người dùng</button>
+    </div>
+    ${USER_LIST.length===0 ? `<div class="empty-state"><div class="icon">👥</div><div class="msg">Chưa có người dùng nào được cấp quyền${canAddQuanLy?' (ngoài chính Admin)':''}.</div></div>` : `
+    <div class="table-wrap"><table>
+      <thead><tr><th>Email</th><th>Họ tên</th><th>Vai trò</th><th>Cho phép duyệt</th><th>Cho phép thao tác</th><th>Trạng thái</th><th></th></tr></thead>
+      <tbody>
+        ${USER_LIST.map(u=>`
+          <tr>
+            <td>${esc(u.Email)}</td>
+            <td style="font-weight:700;">${esc(u.HoTen||'—')}</td>
+            <td><span class="tag ${roleTagClass(u.VaiTro)}">${esc(u.VaiTro)}</span></td>
+            <td>${u.VaiTro==='Quản lý' ? (u.ChoPhepDuyet===true||u.ChoPhepDuyet==='true'||u.ChoPhepDuyet==='TRUE' ? '✅ Có' : '— Không') : '—'}</td>
+            <td>${u.VaiTro==='Nhân viên' ? (u.ChoPhepThaoTac===true||u.ChoPhepThaoTac==='true'||u.ChoPhepThaoTac==='TRUE' ? '✅ Có' : '— Không') : '—'}</td>
+            <td><span class="tag ${u.TrangThai==='Hoạt động'?'tag-green':'tag-red'}">${esc(u.TrangThai||'Hoạt động')}</span></td>
+            <td class="actions">
+              <button class="btn-link-text" data-action="edit-user" data-id="${u._id}">Sửa</button>
+              &nbsp;·&nbsp;
+              <button class="btn-danger-text" data-action="delete-user" data-id="${u._id}">Xóa</button>
+            </td>
+          </tr>`).join('')}
+      </tbody>
+    </table></div>`}
+  </div>`;
+}
+
+function renderUserModal(){
+  const row = userModalState.row || {};
+  const isEdit = !!row._id;
+  const isAdmin = CURRENT_USER && CURRENT_USER.canAdmin;
+  const roleOptions = isAdmin ? ['Quản lý','Nhân viên'] : ['Nhân viên'];
+  const checked = v => (v===true||v==='true'||v==='TRUE') ? 'checked' : '';
+  return `<div class="overlay" data-action="close-user-modal-overlay">
+    <div class="modal">
+      <div class="modal-head">
+        <div class="modal-title">${isEdit?'Sửa':'Thêm'} người dùng</div>
+        <button class="modal-close" data-action="close-user-modal">✕</button>
+      </div>
+      <div class="modal-body">
+        <form id="user-form">
+          <div class="field">
+            <label>Email <span class="req">*</span></label>
+            <input type="text" data-field="Email" value="${esc(row.Email||'')}" placeholder="ten@gmail.com" ${isEdit?'readonly':''}>
+            <div class="hint">Phải là email Google thật (Gmail hoặc Google Workspace) của người sẽ đăng nhập.</div>
+          </div>
+          <div class="field">
+            <label>Họ tên <span class="req">*</span></label>
+            <input type="text" data-field="HoTen" value="${esc(row.HoTen||'')}">
+          </div>
+          <div class="field">
+            <label>Vai trò <span class="req">*</span></label>
+            <select data-field="VaiTro" id="user-role-select">
+              <option value="">— Chọn —</option>
+              ${roleOptions.map(o=>`<option value="${o}" ${row.VaiTro===o?'selected':''}>${o}</option>`).join('')}
+            </select>
+          </div>
+          <div class="field" id="field-choduyet" style="display:${row.VaiTro==='Quản lý'?'block':'none'};">
+            <label>Cho phép duyệt (Chờ duyệt)</label>
+            <div class="toggle-row">
+              <label class="switch"><input type="checkbox" data-field="ChoPhepDuyet" ${checked(row.ChoPhepDuyet)}><span class="slider"></span></label>
+              <span style="font-size:13px;color:var(--text-mute);">${checked(row.ChoPhepDuyet)?'Có':'Không'}</span>
+            </div>
+          </div>
+          <div class="field" id="field-chothaotac" style="display:${row.VaiTro==='Nhân viên'?'block':'none'};">
+            <label>Cho phép thao tác (Thêm/Sửa/Xóa)</label>
+            <div class="toggle-row">
+              <label class="switch"><input type="checkbox" data-field="ChoPhepThaoTac" ${checked(row.ChoPhepThaoTac)}><span class="slider"></span></label>
+              <span style="font-size:13px;color:var(--text-mute);">${checked(row.ChoPhepThaoTac)?'Có':'Không'}</span>
+            </div>
+          </div>
+          <div class="field">
+            <label>Trạng thái</label>
+            <select data-field="TrangThai">
+              <option value="Hoạt động" ${row.TrangThai!=='Khóa'?'selected':''}>Hoạt động</option>
+              <option value="Khóa" ${row.TrangThai==='Khóa'?'selected':''}>Khóa</option>
+            </select>
+          </div>
+        </form>
+      </div>
+      <div class="modal-foot">
+        <div></div>
+        <div style="display:flex; gap:8px;">
+          <button class="btn btn-ghost" data-action="close-user-modal">Hủy</button>
+          <button class="btn btn-primary" data-action="save-user" ${isEdit?`data-id="${row._id}"`:''}>💾 Lưu</button>
+        </div>
+      </div>
+    </div>
+  </div>`;
 }
 
 /* =========================================================================
@@ -1365,10 +1561,9 @@ function initLeaveCharts(){
 
 function computeOpenViolations(){
   return (DATA.CT_NOIQUY||[]).filter(r=>r.TinhTrangXuLy!=='Đã xử lý').map(r=>{
-    const hopdong = getRow('CT_CHITIETHOPDONG', r._parentId);
-    const hdld = hopdong ? getRow('CT_QUATRINHLAMVIEC', hopdong._parentId) : null;
+    const hdld = getRow('CT_QUATRINHLAMVIEC', r._parentId);
     const emp = hdld ? getRow('DM_NHANVIEN', hdld._parentId) : null;
-    return {row:r, emp, hdld, hopdong};
+    return {row:r, emp, hdld};
   }).sort((a,b)=> (b.row.Ngay||'').localeCompare(a.row.Ngay||''));
 }
 function renderReportViolations(){
@@ -1382,7 +1577,7 @@ function renderReportViolations(){
       <thead><tr><th>Nhân viên</th><th>Ngày</th><th>Nội dung vi phạm</th><th>Tình trạng</th></tr></thead>
       <tbody>
         ${list.map(x=>`
-          <tr ${x.hdld?`style="cursor:pointer;" data-action="go-hopdong" data-empid="${x.hdld._parentId}" data-hdldid="${x.hdld._id}" data-id="${x.row._parentId}"`:''}>
+          <tr ${x.hdld?`style="cursor:pointer;" data-action="go-hdld" data-empid="${x.hdld._parentId}" data-id="${x.hdld._id}"`:''}>
             <td style="font-weight:700;">${esc(x.emp?x.emp.TenNhanVien:'—')}</td>
             <td>${esc(x.row.Ngay)}</td>
             <td>${esc(x.row.NoiDungViPham)}</td>
@@ -1515,9 +1710,151 @@ function exportToExcel(){
 }
 
 /* =========================================================================
+   TẢI DỮ LIỆU BAN ĐẦU — file mẫu + nạp hàng loạt (chỉ danh mục gốc + DM_NHANVIEN,
+   không gồm các bảng con CT_* vì cần biết đúng ID nhân viên/hợp đồng cha — nhập
+   những bảng đó qua giao diện bình thường sẽ an toàn hơn).
+   ========================================================================= */
+// Nhập được cả danh mục gốc VÀ hồ sơ nhân sự (2 cấp): bảng con trực tiếp của Nhân viên ghép nối qua
+// cột "MaNV" (mã nhân viên), bảng con của Hợp đồng lao động ghép nối qua cột "SoHDLD" — không cần biết
+// ID nội bộ, hệ thống tự tra cứu đúng dòng cha khi nạp.
+const IMPORTABLE_TABLES = Object.keys(TABLES).filter(t => {
+  const cfg = TABLES[t];
+  if (t==='DM_CONG' || t==='DM_NGUOIDUNG') return false;
+  if (!cfg.parent) return true;                 // danh mục gốc + DM_NHANVIEN
+  if (cfg.level==='employee') return true;       // con trực tiếp của Nhân viên (ghép qua MaNV)
+  if (cfg.level==='hdld') return true;           // con của Hợp đồng lao động (ghép qua SoHDLD)
+  return false;
+});
+
+function downloadTemplate(){
+  if(typeof XLSX === 'undefined'){ showToast('⚠️ Thư viện Excel chưa tải xong, thử lại sau.'); return; }
+  const wb = XLSX.utils.book_new();
+  IMPORTABLE_TABLES.forEach(t=>{
+    const cfg = TABLES[t];
+    let headers = cfg.fields.filter(f=>!f.computed).map(f=>f.key);
+    if(cfg.level==='employee') headers = ['MaNV', ...headers];   // cột ghép nối tới đúng nhân viên
+    else if(cfg.level==='hdld') headers = ['SoHDLD', ...headers]; // cột ghép nối tới đúng hợp đồng lao động
+    const ws = XLSX.utils.aoa_to_sheet([headers]);
+    XLSX.utils.book_append_sheet(wb, ws, t.substring(0,31));
+  });
+  XLSX.writeFile(wb, 'File_Mau_Nhap_Du_Lieu_Ban_Dau.xlsx');
+  showToast('📄 Đã tải file mẫu — sheet hồ sơ nhân sự có thêm cột MaNV/SoHDLD để ghép đúng nhân viên/hợp đồng, điền xong dùng "Tải dữ liệu ban đầu" để nạp lên.');
+}
+
+function handleImportFileSelected(){
+  const input = document.getElementById('import-file-input');
+  if(!input.files || !input.files[0]) return;
+  if(typeof XLSX === 'undefined'){ IMPORT_STATE.error = 'Thư viện Excel chưa tải xong, thử lại sau.'; render(); return; }
+  const file = input.files[0];
+  const reader = new FileReader();
+  reader.onload = (evt) => {
+    try{
+      const data = new Uint8Array(evt.target.result);
+      const wb = XLSX.read(data, {type:'array'});
+      const dataByTable = {};
+      let totalRows = 0;
+      wb.SheetNames.forEach(name=>{
+        if(IMPORTABLE_TABLES.indexOf(name)===-1) return;
+        const rows = XLSX.utils.sheet_to_json(wb.Sheets[name], {defval:''});
+        const clean = rows.filter(r => Object.values(r).some(v => v!==''));
+        if(clean.length){ dataByTable[name] = clean; totalRows += clean.length; }
+      });
+      IMPORT_STATE.parsedData = dataByTable;
+      IMPORT_STATE.preview = totalRows>0
+        ? `Đọc được ${totalRows} dòng từ ${Object.keys(dataByTable).length} bảng: ${Object.keys(dataByTable).join(', ')}.`
+        : 'Không tìm thấy dữ liệu hợp lệ — kiểm tra tên sheet trong file có khớp đúng tên bảng không (VD: DM_CHUCVU, DM_NHANVIEN...).';
+      IMPORT_STATE.error = null;
+    }catch(e){
+      IMPORT_STATE.error = 'Không đọc được file: ' + (e.message||e);
+      IMPORT_STATE.parsedData = null;
+    }
+    render();
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+/** Ghép nối 2 cấp con (nhân viên -> hợp đồng -> bảng con của hợp đồng) bằng mã tự nhiên
+ *  (MaNV, SoHDLD) thành đúng _id/_parentId nội bộ, để server chỉ việc ghi thẳng vào Sheet. */
+function resolveImportHierarchy(dataByTable){
+  const out = {};
+  const empIdMap = {};   // MaNV -> _id vừa sinh
+  const hdldIdMap = {};  // SoHDLD -> _id vừa sinh
+
+  // Cấp 1: bảng gốc (danh mục + DM_NHANVIEN) — không có cha.
+  Object.keys(dataByTable).forEach(t=>{
+    const cfg = TABLES[t];
+    if(!cfg || cfg.parent) return;
+    out[t] = dataByTable[t].map(r=>{
+      const row = {...r, _id: uid()};
+      if(t==='DM_NHANVIEN' && row.MaNV) empIdMap[String(row.MaNV)] = row._id;
+      return row;
+    });
+  });
+
+  // Cấp 2: bảng con trực tiếp của Nhân viên — ghép qua cột "MaNV".
+  Object.keys(dataByTable).forEach(t=>{
+    const cfg = TABLES[t];
+    if(!cfg || cfg.level!=='employee') return;
+    const rows = dataByTable[t].map(r=>{
+      const parentId = r.MaNV!==undefined ? empIdMap[String(r.MaNV)] : undefined;
+      const row = {...r, _id: uid(), _parentId: parentId};
+      delete row.MaNV; // chỉ dùng để ghép nối, không phải cột dữ liệu thật
+      if(t==='CT_QUATRINHLAMVIEC' && row.SoHDLD) hdldIdMap[String(row.SoHDLD)] = row._id;
+      return row;
+    });
+    out[t] = rows.filter(r=>r._parentId); // bỏ những dòng không tìm được đúng Mã NV
+  });
+
+  // Cấp 3: bảng con của Hợp đồng lao động — ghép qua cột "SoHDLD".
+  Object.keys(dataByTable).forEach(t=>{
+    const cfg = TABLES[t];
+    if(!cfg || cfg.level!=='hdld') return;
+    const rows = dataByTable[t].map(r=>{
+      const parentId = r.SoHDLD!==undefined ? hdldIdMap[String(r.SoHDLD)] : undefined;
+      const row = {...r, _id: uid(), _parentId: parentId};
+      delete row.SoHDLD; // chỉ dùng để ghép nối
+      return row;
+    });
+    out[t] = rows.filter(r=>r._parentId); // bỏ những dòng không tìm được đúng Số HĐLĐ
+  });
+
+  return out;
+}
+
+async function runImport(){
+  if(!IMPORT_STATE.parsedData || Object.keys(IMPORT_STATE.parsedData).length===0){
+    IMPORT_STATE.error = 'Chưa chọn file hoặc file không có dữ liệu hợp lệ.'; render(); return;
+  }
+  IMPORT_STATE.busy = true; IMPORT_STATE.error = null; render();
+  try{
+    const resolved = resolveImportHierarchy(IMPORT_STATE.parsedData);
+    const summary = await runServer('bulkImportData', resolved);
+    await refreshData();
+    importModalOpen = false;
+    const summaryText = Object.entries(summary).map(([t,n])=>`${t}: +${n}`).join(', ');
+    IMPORT_STATE = { busy:false, preview:null, error:null };
+    showToast('✅ Đã nạp dữ liệu ban đầu' + (summaryText ? ' — ' + summaryText : '.'));
+  }catch(err){
+    IMPORT_STATE.busy = false;
+    IMPORT_STATE.error = err.message||String(err);
+  }
+  render();
+}
+
+/* =========================================================================
    MODAL (Add / Edit single-table form)
    ========================================================================= */
 function renderFieldHtml(f, val, excludeRowId){
+  if(f.type==='file'){
+    const hasFile = val && String(val).trim().length>0;
+    return `<div class="field">
+      <label>${esc(f.label)} ${f.required?'<span class="req">*</span>':''}</label>
+      ${hasFile ? `<div style="margin-bottom:6px;"><a href="${esc(val)}" target="_blank" rel="noopener" class="btn-link-text">📎 Xem file đã tải lên</a> <span style="color:var(--text-mute);font-size:12px;">(chọn file mới bên dưới nếu muốn thay)</span></div>` : ''}
+      <input type="file" data-field="${f.key}" data-filefield="1" accept="image/*,.pdf">
+      <input type="hidden" data-field="${f.key}-existing" value="${esc(val||'')}">
+      ${f.hint?`<div class="hint">${esc(f.hint)}</div>`:''}
+    </div>`;
+  }
   if(f.type==='select'){
     let opts;
     if(f.refTable){
@@ -1636,6 +1973,52 @@ function bindEvents(){
     if(action==='go-home'){ nav = {view:'home'}; render(); return; }
     if(action==='go-reports'){ nav = {view:'reports', reportTab:'expiring'}; render(); return; }
     if(action==='go-pending'){ nav = {view:'pending'}; render(); return; }
+    if(action==='go-users'){
+      nav = {view:'users'};
+      render();
+      await refreshUsers();
+      render();
+      return;
+    }
+    if(action==='add-user'){ userModalState = {row:null}; render(); return; }
+    if(action==='edit-user'){
+      const u = USER_LIST.find(x=>x._id===el.dataset.id);
+      userModalState = {row:u};
+      render(); return;
+    }
+    if(action==='delete-user'){
+      if(!confirm('Xoá quyền truy cập của người dùng này?')) return;
+      try{
+        await runServer('deleteUserPermission', el.dataset.id);
+        await refreshUsers();
+        showToast('🗑️ Đã xoá người dùng.');
+      }catch(err){ showToast('⚠️ Lỗi: ' + (err.message||err)); }
+      render(); return;
+    }
+    if(action==='close-user-modal' || action==='close-user-modal-overlay'){
+      if(action==='close-user-modal-overlay' && e.target !== el) return;
+      userModalState = null; render(); return;
+    }
+    if(action==='save-user'){
+      const form = document.getElementById('user-form');
+      const row = userModalState.row ? {_id: userModalState.row._id} : {};
+      ['Email','HoTen','VaiTro','TrangThai'].forEach(k=>{
+        const fe = form.querySelector(`[data-field="${k}"]`);
+        if(fe) row[k] = fe.value;
+      });
+      const choDuyetEl = form.querySelector('[data-field="ChoPhepDuyet"]');
+      const choThaoTacEl = form.querySelector('[data-field="ChoPhepThaoTac"]');
+      row.ChoPhepDuyet = choDuyetEl ? choDuyetEl.checked : false;
+      row.ChoPhepThaoTac = choThaoTacEl ? choThaoTacEl.checked : false;
+      if(!row.Email || !row.HoTen || !row.VaiTro){ showToast('⚠️ Vui lòng nhập đủ Email, Họ tên, Vai trò.'); return; }
+      try{
+        await runServer('saveUserPermission', row);
+        userModalState = null;
+        await refreshUsers();
+        showToast('✅ Đã lưu quyền người dùng.');
+      }catch(err){ showToast('⚠️ Lỗi: ' + (err.message||err)); }
+      render(); return;
+    }
     if(action==='approve-draft'){
       const table = el.dataset.table, id = el.dataset.id;
       try{
@@ -1659,16 +2042,22 @@ function bindEvents(){
     if(action==='set-report-tab'){ nav.reportTab = el.dataset.tab; render(); return; }
     if(action==='go-danhmuc'){ nav = {view:'danhmuc', table: el.dataset.table}; render(); return; }
     if(action==='go-employee'){ nav = {view:'employee', empId: el.dataset.id}; render(); return; }
-    if(action==='go-hdld'){ nav = {view:'hdld', empId: el.dataset.empid, hdldId: el.dataset.id}; render(); return; }
-    if(action==='go-hopdong'){ nav = {view:'hopdong', empId: el.dataset.empid, hdldId: el.dataset.hdldid, hopdongId: el.dataset.id}; render(); return; }
+    if(action==='go-hdld'){
+      let empId = el.dataset.empid;
+      if(!empId){ const hdld = getRow('CT_QUATRINHLAMVIEC', el.dataset.id); empId = hdld ? hdld._parentId : null; }
+      nav = {view:'hdld', empId, hdldId: el.dataset.id}; render(); return;
+    }
     if(action==='set-emp-tab'){ nav.tab = el.dataset.tab; render(); return; }
     if(action==='set-hdld-tab'){ nav.tab = el.dataset.tab; render(); return; }
-    if(action==='set-hopdong-tab'){ nav.tab = el.dataset.tab; render(); return; }
 
     if(action==='go-drill'){
       const table = el.dataset.table, id = el.dataset.id;
-      if(table==='CT_QUATRINHLAMVIEC'){ nav = {view:'hdld', empId: nav.empId, hdldId: id}; }
-      else if(table==='CT_CHITIETHOPDONG'){ nav = {view:'hopdong', empId: nav.empId, hdldId: nav.hdldId, hopdongId: id}; }
+      if(table==='CT_QUATRINHLAMVIEC'){
+        // Lấy empId trực tiếp từ chính dòng dữ liệu (_parentId) thay vì tin vào nav.empId cũ —
+        // tránh lỗi "Không tìm thấy hợp đồng" nếu state điều hướng trước đó bị lệch.
+        const row = getRow('CT_QUATRINHLAMVIEC', id);
+        nav = {view:'hdld', empId: row ? row._parentId : nav.empId, hdldId: id};
+      }
       else if(table==='DM_TNCN'){ nav = {view:'tncnbac', tncnId: id}; }
       render(); return;
     }
@@ -1764,6 +2153,22 @@ function bindEvents(){
       await runInitialize();
       return;
     }
+    if(action==='menu-download-template'){
+      systemMenuOpen = false;
+      downloadTemplate();
+      return;
+    }
+    if(action==='menu-open-import'){
+      systemMenuOpen = false;
+      IMPORT_STATE = { busy:false, preview:null, error:null };
+      importModalOpen = true;
+      render(); return;
+    }
+    if(action==='close-import-modal' || action==='close-import-modal-overlay'){
+      if(action==='close-import-modal-overlay' && e.target !== el) return;
+      importModalOpen = false; render(); return;
+    }
+    if(action==='run-import'){ await runImport(); return; }
     if(action==='menu-change-links'){
       systemMenuOpen = false;
       await changeLinks();
@@ -1782,6 +2187,14 @@ function bindEvents(){
   };
   document.body.onchange = (e)=>{
     if(e.target.id==='chk-inactive'){ showInactive = e.target.checked; render(); return; }
+    if(e.target.id==='import-file-input'){ handleImportFileSelected(); return; }
+    if(e.target.id==='user-role-select'){
+      const fdDuyet = document.getElementById('field-choduyet');
+      const fdThaoTac = document.getElementById('field-chothaotac');
+      if(fdDuyet) fdDuyet.style.display = e.target.value==='Quản lý' ? 'block' : 'none';
+      if(fdThaoTac) fdThaoTac.style.display = e.target.value==='Nhân viên' ? 'block' : 'none';
+      return;
+    }
     if(e.target.dataset && e.target.dataset.field && e.target.type==='checkbox'){
       const span = e.target.closest('.toggle-row').querySelector('span:last-child');
       if(span) span.textContent = e.target.checked ? 'Có' : 'Không';
@@ -1792,12 +2205,36 @@ function bindEvents(){
 async function handleSave(table, id, parentId){
   const cfg = TABLES[table];
   const form = document.getElementById('entity-form');
+
+  // Xử lý riêng các field kiểu "file": có chọn file mới thì tải lên Drive trước, không thì giữ nguyên link cũ.
+  const fileFields = cfg.fields.filter(f=>f.type==='file');
+  const fileValues = {};
+  for(const f of fileFields){
+    const fileInput = form.querySelector(`[data-field="${f.key}"][data-filefield="1"]`);
+    const existingInput = form.querySelector(`[data-field="${f.key}-existing"]`);
+    if(fileInput && fileInput.files && fileInput.files[0]){
+      const file = fileInput.files[0];
+      if(file.size > 5*1024*1024){ showToast('⚠️ File "' + file.name + '" vượt quá 5MB.'); return; }
+      showToast('⏳ Đang tải "' + file.name + '" lên Drive…');
+      try{
+        const uploaded = await uploadFileField(file);
+        fileValues[f.key] = uploaded.url;
+      }catch(err){ showToast('⚠️ Lỗi tải file lên: ' + (err.message||err)); return; }
+    } else {
+      fileValues[f.key] = existingInput ? existingInput.value : '';
+    }
+  }
+
   const newRow = {}; let missing = [];
-  cfg.fields.filter(f=>!f.computed).forEach(f=>{
+  cfg.fields.filter(f=>!f.computed && f.type!=='file').forEach(f=>{
     const el = form.querySelector(`[data-field="${f.key}"]`);
     let val = f.type==='yesno' ? el.checked : el.value;
     if(f.required && (val===''||val===undefined||val===null)) missing.push(f.label);
     newRow[f.key] = val;
+  });
+  fileFields.forEach(f=>{
+    newRow[f.key] = fileValues[f.key];
+    if(f.required && !fileValues[f.key]) missing.push(f.label);
   });
   if(missing.length){ showToast('⚠️ Vui lòng nhập: ' + missing.join(', ')); return; }
 
@@ -1810,6 +2247,18 @@ async function handleSave(table, id, parentId){
       row = {_id: uid(), ...newRow};
       if(cfg.parent) row._parentId = parentId;
     }
+
+    if(table==='DM_CONG'){
+      // Hồ sơ công ty: Admin sửa trực tiếp, không qua nháp (Admin là cấp cao nhất).
+      await runServer('updateCompanyProfile', row);
+      if(!DATA.DM_CONG) DATA.DM_CONG = [];
+      const idx = DATA.DM_CONG.findIndex(r=>r._id===row._id);
+      if(idx>-1) DATA.DM_CONG[idx] = row; else DATA.DM_CONG.push(row);
+      modalState = null;
+      showToast('✅ Đã cập nhật hồ sơ công ty.');
+      render(); return;
+    }
+
     await runServer('saveDraftRow', table, row, id ? 'Sửa' : 'Thêm');
     modalState = null;
     await refreshPendingCount();
