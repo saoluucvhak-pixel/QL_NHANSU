@@ -870,9 +870,22 @@ function commitChange_(table, payload, action) {
   const sheet = getOrCreateSheet_(table);
   const today = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
   const trangThai = isHuy ? 'Hủy' : (action === 'Sửa' ? 'Sửa' : 'Thêm mới');
-  // Vá các trường thiếu (đặc biệt khi Hủy) bằng dòng mới nhất hiện có, rồi mới áp payload đè lên.
+  // Vá các trường thiếu bằng dòng mới nhất hiện có, rồi mới áp payload đè lên — CHỈ áp dụng khi Hủy,
+  // vì đó là trường hợp DUY NHẤT client cố ý gửi payload thiếu (chỉ {_id}, xem saveDraftRow ở client).
+  // Khi Thêm/Sửa, form luôn gửi ĐỦ mọi trường (kể cả '' cho trường vừa bị xoá trắng) nên payload đã là
+  // dữ liệu đầy đủ mới nhất — áp thẳng, không được lấy `current` để vá, nếu không sẽ không xoá trắng
+  // được trường tuỳ chọn (findDraftRow_ đọc lại '' từ Sheet thành `undefined`, không phân biệt được với
+  // "trường không gửi lên").
   const current = payload._id ? (getLatestRowById_(table, payload._id) || {}) : {};
-  const row = Object.assign({}, current, payload, {
+  const row = Object.assign({}, current);
+  if (isHuy) {
+    Object.keys(payload).forEach(function (h) {
+      if (payload[h] !== undefined) row[h] = payload[h];
+    });
+  } else {
+    Object.assign(row, payload);
+  }
+  Object.assign(row, {
     TrangThaiBanGhi: trangThai,
     HieuLucTuNgay: payload.HieuLucTuNgay || today,
     HieuLucDenNgay: '',

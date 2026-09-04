@@ -1441,12 +1441,17 @@ function renderPendingView(){
           ${rows.map(r=>{
             const actionCls = r.HanhDong==='Thêm'?'tag-green':(r.HanhDong==='Xóa'?'tag-red':'tag-amber');
             const actionLabel = r.HanhDong==='Xóa' ? 'Hủy' : r.HanhDong;
+            // Yêu cầu "Hủy" chỉ gửi lên {_id} (xem bindEvents data-action="delete-row") nên các cột dữ
+            // liệu khác trong bản nháp đều trống — lấy tạm dữ liệu hiện có (bản chính, trước khi duyệt)
+            // để người duyệt còn biết đang hủy đúng bản ghi nào, thay vì thấy toàn "—".
+            const displaySource = (r.HanhDong==='Xóa') ? (getRow(table, r._id) || r) : r;
             return `<tr>
               <td><span class="tag ${actionCls}">${esc(actionLabel)}</span></td>
               ${cols.map(c=>{
                 const f = cfg.fields.find(x=>x.key===c);
-                if(f.type==='file') return `<td>${r[c] ? `<a href="${esc(r[c])}" target="_blank" rel="noopener" class="btn-link-text">📎 Xem file</a>` : '—'}</td>`;
-                return `<td>${esc(fieldDisplay(f, r[c]))}</td>`;
+                const val = displaySource[c];
+                if(f.type==='file') return `<td>${val ? `<a href="${esc(val)}" target="_blank" rel="noopener" class="btn-link-text">📎 Xem file</a>` : '—'}</td>`;
+                return `<td>${esc(fieldDisplay(f, val))}</td>`;
               }).join('')}
               <td>${esc(r.NguoiTao||'—')}</td>
               <td>${esc(r.ThoiGianTao||'—')}</td>
