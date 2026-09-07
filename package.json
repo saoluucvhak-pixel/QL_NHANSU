@@ -1,0 +1,8 @@
+{
+  "name": "ql-nhansu",
+  "private": true,
+  "description": "Google Apps Script — Quản lý nhân sự. package.json này chỉ phục vụ chạy test bằng Node (node:test); ứng dụng thật chạy trong Google Apps Script, không cần build/publish npm.",
+  "scripts": {
+    "test": "node --test test/*.test.js"
+  }
+}
