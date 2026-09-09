@@ -1,13 +1,14 @@
 /**
  * QUẢN LÝ NHÂN SỰ — Google Apps Script backend
- * Dữ liệu tách làm 3 Google Sheet RIÊNG BIỆT (không phải sheet gắn với script này):
- *   1) DM_CONGCTY_HAK      — hồ sơ công ty (DM_CONG) + toàn bộ danh mục dùng chung (DM_*, CT_BACTHUE_TNCN)
- *   2) THONGTINNHANSU_HAK  — DM_NHANVIEN + toàn bộ hồ sơ nhân sự/hợp đồng (CT_*)
- *   3) Draft_NHANSU_HAK    — nhật ký ghi nhận các lần thêm/sửa Phòng ban (audit log)
+ * Dữ liệu tách làm 4 NHÓM, MỖI NHÓM 1 Google Sheet chính + 1 Google Sheet Nháp riêng (8 Sheet tổng cộng):
+ *   1) Danh mục          — hồ sơ công ty, phân quyền người dùng, mọi danh mục dùng chung (DM_*)
+ *   2) Nhân sự — Cấp 1   — hồ sơ trực tiếp của nhân viên (thông tin cá nhân, học vấn, hợp đồng lao động...)
+ *   3) Nhân sự — Cấp 2   — hồ sơ con của từng hợp đồng lao động (khám sức khỏe, nội quy, khen thưởng...)
+ *   4) Dữ liệu phát sinh — bảng phát sinh liên tục hàng tháng (chấm công, tăng ca, nghỉ lễ, ca sản xuất, công tác)
+ * Tách nhóm 4 riêng vì đây là dữ liệu tăng nhanh nhất theo thời gian, trong khi 3 nhóm còn lại tương đối tĩnh.
  *
- * Link tới 3 sheet này được lưu trong Script Properties (không hardcode trong code khi chạy thật —
- * DEFAULT_CONFIG bên dưới chỉ để tiện điền sẵn form khởi tạo lần đầu, bạn có thể xoá/đổi bất cứ lúc nào
- * qua nút "⚙️ Đổi liên kết dữ liệu" trong app để tái sử dụng cho công ty khác).
+ * Link tới 8 sheet này được lưu trong Script Properties — thiết lập qua màn hình khởi tạo lần đầu,
+ * hoặc đổi lại bất cứ lúc nào qua "⚙️ Đổi liên kết dữ liệu".
  *
  * Cột đầu tiên của mỗi sheet luôn là "_id" (khóa nội bộ, tự sinh — đừng sửa tay).
  * Các bảng con có thêm cột "_parentId" (trỏ đến _id của dòng cha).
@@ -21,19 +22,53 @@ const CONFIG_KEY = 'HR_CONFIG_V1';
 // Email này LUÔN được tự động cấp quyền Admin ngay lần đầu tiên họ mở app (nếu DM_NGUOIDUNG còn trống).
 const ADMIN_EMAIL = 'saoluucvhak@gmail.com';
 
-// Chỉ dùng để điền sẵn (placeholder) trong form khởi tạo lần đầu của lần deploy này.
-// Khi dùng cho công ty khác: xoá liên kết cũ trong app rồi dán link mới, KHÔNG cần sửa code.
-const DEFAULT_CONFIG = {
-  congTyUrl:  'https://docs.google.com/spreadsheets/d/1FbSQDTSrFHietczdzFxGs0HUYxE4pT-8ia_EBTVo39E/edit',
-  nhanSuUrl:  'https://docs.google.com/spreadsheets/d/13RnobxTcJ8tdXUutNUx_aiZXX8PBASiYt9ONrp7Yp6E/edit',
-  draftUrl:   'https://docs.google.com/spreadsheets/d/1SAoXxhTka0VjySJrhjdom5YXTdDpK1J6ubgPvO_WUMk/edit',
-};
+// Chưa có sẵn 8 Sheet mẫu cho cấu trúc mới — để trống, người dùng tự tạo 8 Google Sheet mới rồi dán link.
+const DEFAULT_CONFIG = {};
 
 function extractSheetId_(url) {
   const m = String(url || '').match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
   if (!m) throw new Error('Link Google Sheet không hợp lệ: ' + url);
   return m[1];
 }
+
+// 4 nhóm lưu trữ chính — mỗi nhóm 1 Sheet riêng (+ 1 Sheet Nháp riêng đi kèm, cùng danh sách bảng).
+const STORAGE_GROUPS = {
+  danhMuc: {
+    label: 'Danh mục',
+    tables: ['DM_CONG','DM_NGUOIDUNG','DM_CHUCVU','DM_PHONGBAN','DM_LUONG','DM_LUONG_BS','DM_PHUCAP','DM_TANGCA',
+      'DM_HOTRO','DM_BAOHIEM','DM_TNCN','CT_BACTHUE_TNCN','DM_CC','DM_GT_TNCN'],
+  },
+  nhanSuCap1: {
+    label: 'Nhân sự — Cấp 1',
+    tables: ['DM_NHANVIEN','CT_THONGTINCANHAN','CT_TRINHDOHOCVAN','CT_NHANTHAN','CT_THONGTINTHANHTOAN',
+      'CT_SUCKHOE','CT_THONGTINLIENHE','CT_THONGTINNGHENGHIEP','CT_QUATRINHCONGTAC','CT_QUATRINHLAMVIEC'],
+  },
+  nhanSuCap2: {
+    label: 'Nhân sự — Cấp 2',
+    tables: ['CT_KHAMSUCKHOE','CT_QUYENLOIPHEP','CT_NGHIPHEP','CT_NGHIKHONGLUONG','CT_NGHIOM',
+      'CT_CHITIETHOPDONG','CT_NOIQUY','CT_KHENTHUONG','CT_NGHIVIEC','CT_TRANGBI','CT_TAILIEU'],
+  },
+  phatSinh: {
+    label: 'Dữ liệu phát sinh',
+    tables: ['CT_CHAMCONG','CT_TANGCA','CT_NGHILE','CT_CASANXUAT','CT_CONGTAC'],
+  },
+};
+const STORAGE_GROUP_KEYS = Object.keys(STORAGE_GROUPS);
+
+// Tra cứu ngược: tên bảng -> khoá nhóm lưu trữ.
+const TABLE_TO_GROUP = {};
+STORAGE_GROUP_KEYS.forEach(function (g) {
+  STORAGE_GROUPS[g].tables.forEach(function (t) { TABLE_TO_GROUP[t] = g; });
+});
+function groupForTable_(table) {
+  const g = TABLE_TO_GROUP[table];
+  if (!g) throw new Error('Không xác định được nhóm lưu trữ cho bảng: ' + table);
+  return g;
+}
+function mainIdField_(g) { return g + 'Id'; }
+function mainUrlField_(g) { return g + 'Url'; }
+function draftIdField_(g) { return 'draft' + g.charAt(0).toUpperCase() + g.slice(1) + 'Id'; }
+function draftUrlField_(g) { return 'draft' + g.charAt(0).toUpperCase() + g.slice(1) + 'Url'; }
 
 /** Đọc cấu hình đã lưu. Trả về null nếu chưa từng thiết lập. */
 function getConfig_() {
@@ -42,34 +77,43 @@ function getConfig_() {
   try { return JSON.parse(raw); } catch (e) { return null; }
 }
 
-/** Gọi từ client lúc mở app: cho biết đã cấu hình liên kết chưa, kèm link mặc định để điền sẵn form. */
+/** Gọi từ client lúc mở app: cho biết đã cấu hình liên kết chưa, kèm link (nếu có) để điền sẵn form. */
 function getConfigStatus() {
   const cfg = getConfig_();
-  return {
-    configured: !!cfg,
-    initialized: cfg ? !!cfg.initialized : false,
-    congTyUrl: cfg ? cfg.congTyUrl : DEFAULT_CONFIG.congTyUrl,
-    nhanSuUrl: cfg ? cfg.nhanSuUrl : DEFAULT_CONFIG.nhanSuUrl,
-    draftUrl: cfg ? cfg.draftUrl : DEFAULT_CONFIG.draftUrl,
-  };
+  const result = { configured: !!cfg, initialized: cfg ? !!cfg.initialized : false };
+  STORAGE_GROUP_KEYS.forEach(function (g) {
+    result[mainUrlField_(g)] = cfg ? (cfg[mainUrlField_(g)] || '') : (DEFAULT_CONFIG[mainUrlField_(g)] || '');
+    result[draftUrlField_(g)] = cfg ? (cfg[draftUrlField_(g)] || '') : (DEFAULT_CONFIG[draftUrlField_(g)] || '');
+  });
+  return result;
 }
 
-/** Lưu cấu hình liên kết mới — gọi khi người dùng bấm "Lưu & Bắt đầu" ở màn hình khởi tạo.
+/** Lưu cấu hình liên kết mới — gọi khi người dùng bấm "Lưu & Bắt đầu" ở màn hình khởi tạo, hoặc
+ *  "Đổi liên kết dữ liệu" (khi đó bắt buộc phải là Admin). urls = object có đủ 8 khoá dạng
+ *  {danhMucUrl, nhanSuCap1Url, nhanSuCap2Url, phatSinhUrl,
+ *   draftDanhMucUrl, draftNhanSuCap1Url, draftNhanSuCap2Url, draftPhatSinhUrl}.
  *  KHÔNG tự tạo sheet / seed dữ liệu — việc đó chỉ chạy khi người dùng bấm nút "Khởi tạo cấu trúc dữ liệu". */
-function saveConfig(congTyUrl, nhanSuUrl, draftUrl) {
-  const cfg = {
-    congTyId: extractSheetId_(congTyUrl),
-    nhanSuId: extractSheetId_(nhanSuUrl),
-    draftId: extractSheetId_(draftUrl),
-    congTyUrl: congTyUrl,
-    nhanSuUrl: nhanSuUrl,
-    draftUrl: draftUrl,
-    initialized: false,
-  };
-  // Thử mở cả 3 để chắc chắn có quyền truy cập trước khi lưu.
-  SpreadsheetApp.openById(cfg.congTyId);
-  SpreadsheetApp.openById(cfg.nhanSuId);
-  SpreadsheetApp.openById(cfg.draftId);
+function saveConfig(urls) {
+  const existingCfg = getConfig_();
+  if (existingCfg) {
+    const me = getCurrentUserInfo();
+    if (!me.canAdmin) throw new Error('Chỉ Admin được đổi liên kết dữ liệu.');
+  }
+  const cfg = { initialized: false };
+  STORAGE_GROUP_KEYS.forEach(function (g) {
+    const mainUrl = urls[mainUrlField_(g)];
+    const draftUrl = urls[draftUrlField_(g)];
+    if (!mainUrl || !draftUrl) throw new Error('Thiếu link cho nhóm "' + STORAGE_GROUPS[g].label + '" (cả link chính lẫn link Nháp).');
+    cfg[mainUrlField_(g)] = mainUrl;
+    cfg[mainIdField_(g)] = extractSheetId_(mainUrl);
+    cfg[draftUrlField_(g)] = draftUrl;
+    cfg[draftIdField_(g)] = extractSheetId_(draftUrl);
+  });
+  // Thử mở cả 8 để chắc chắn có quyền truy cập trước khi lưu.
+  STORAGE_GROUP_KEYS.forEach(function (g) {
+    SpreadsheetApp.openById(cfg[mainIdField_(g)]);
+    SpreadsheetApp.openById(cfg[draftIdField_(g)]);
+  });
 
   PropertiesService.getScriptProperties().setProperty(CONFIG_KEY, JSON.stringify(cfg));
   return true;
@@ -80,6 +124,8 @@ function saveConfig(congTyUrl, nhanSuUrl, draftUrl) {
 function initializeDataStructure() {
   const cfg = getConfig_();
   if (!cfg) throw new Error('Chưa cấu hình liên kết Google Sheet. Hãy thiết lập trước.');
+  const me = getCurrentUserInfo();
+  if (!me.canAdmin) throw new Error('Chỉ Admin được khởi tạo cấu trúc dữ liệu.');
   ensureAllSheets_();
   seedRealDanhMucIfEmpty_();
   cfg.initialized = true;
@@ -95,15 +141,14 @@ function resetConfig() {
   return true;
 }
 
-/** XOÁ TOÀN BỘ DỮ LIỆU (giữ nguyên cấu trúc cột/tiêu đề) ở CẢ 2 spreadsheet chính
- *  (DM_CONGTY_HAK và THONGTINNHANSU_HAK) — dùng khi cần làm lại từ đầu theo cấu trúc mới.
- *  KHÔNG đụng tới Draft_NHANSU_HAK. CHỈ ADMIN được gọi. KHÔNG THỂ HOÀN TÁC —
- *  hãy chắc chắn đã xuất/sao lưu dữ liệu (nếu cần) trước khi gọi hàm này. */
+/** XOÁ TOÀN BỘ DỮ LIỆU (giữ nguyên cấu trúc cột/tiêu đề) ở CẢ 4 spreadsheet chính — dùng khi cần
+ *  làm lại từ đầu theo cấu trúc mới. KHÔNG đụng tới 4 Sheet Nháp. CHỈ ADMIN được gọi. KHÔNG THỂ
+ *  HOÀN TÁC — hãy chắc chắn đã xuất/sao lưu dữ liệu (nếu cần) trước khi gọi hàm này. */
 function wipeAllMainData() {
   const me = getCurrentUserInfo();
   if (!me.canAdmin) throw new Error('Chỉ Admin được xoá dữ liệu.');
   ensureAllSheets_();
-  [].concat(COMPANY_TABLES, NHANSU_TABLES).forEach(function (table) {
+  Object.keys(TABLES_SCHEMA).forEach(function (table) {
     const sheet = getOrCreateSheet_(table);
     const lastRow = sheet.getLastRow();
     if (lastRow > 1) sheet.deleteRows(2, lastRow - 1);
@@ -164,12 +209,13 @@ const TABLES_SCHEMA = {
   CT_SUCKHOE:             ['_id','_parentId','TienSuBenh','TinhTrang','HieuLucTuNgay'],
   CT_THONGTINLIENHE:      ['_id','_parentId','DiaChiLienHe','NguoiLienHe','QuanHe','SoDienThoai','Email','GhiChu'],
   CT_THONGTINNGHENGHIEP:  ['_id','_parentId','TuNgay','DenNgay','TenCongTy','ViTriDamNhiem','ChuyenMon','LyDoNghi'],
-  CT_QUATRINHCONGTAC:     ['_id','_parentId','TuNgay','DenNgay','MaPB','MaCV','LoaiBienDong','GhiChu'],
+  CT_QUATRINHCONGTAC:     ['_id','_parentId','TuNgay','DenNgay','MaPB','MaCV','LoaiBienDong','SoQuyetDinh','GhiChu'],
   CT_QUATRINHLAMVIEC:     ['_id','_parentId','SoHDLD','NgayVaoLam','NgayChamDutHDLD','HinhThucHDLD','HieuLucTuNgay','GhiChu'],
   CT_KHAMSUCKHOE:         ['_id','_parentId','SoGiayKham','HinhThucKham','NgayKham','TinhTrang','HieuLucTuNgay'],
   CT_QUYENLOIPHEP:        ['_id','_parentId','NamApDung','SoNgayDuocCap','SoNgayCongDon','HieuLucTuNgay','GhiChu'],
-  CT_NGHIPHEP:            ['_id','_parentId','TuNgay','DenNgay','SoNgayNghi','TrangThaiDuyet','NguoiDuyet','GhiChu'],
-  CT_NGHIOM:              ['_id','_parentId','TuNgay','DenNgay','SoNgayNghi','CoGiayChungNhanBHXH',
+  CT_NGHIPHEP:            ['_id','_parentId','MaPhongBan','TuNgay','DenNgay','SoNgayNghi','TrangThaiDuyet','NguoiDuyet','GhiChu'],
+  CT_NGHIKHONGLUONG:      ['_id','_parentId','MaPhongBan','TuNgay','DenNgay','SoNgayNghi','LyDo','TrangThaiDuyet','NguoiDuyet','GhiChu'],
+  CT_NGHIOM:              ['_id','_parentId','MaPhongBan','TuNgay','DenNgay','SoNgayNghi','CoGiayChungNhanBHXH',
                             'SoGiayChungNhan','TrangThaiDuyet','GhiChu'],
   // MaHinhThucLuong = nhóm lương (LTG/LSP, giống lựa chọn trong DM_LUONG.MaHinhThucLuong).
   // MaLuong = 1 hoặc nhiều mã lương cụ thể thuộc nhóm đó (DM_LUONG._id), cách nhau dấu phẩy — khi tính lương sẽ tách và tham chiếu từng mã.
@@ -183,6 +229,19 @@ const TABLES_SCHEMA = {
   CT_NOIQUY:              ['_id','_parentId','Ngay','NoiDungViPham','TinhTrangXuLy','NoiDungXuLy'],
   CT_KHENTHUONG:          ['_id','_parentId','Ngay','HinhThucKhenThuong','LyDo','GiaTri','GhiChu'],
   CT_TAILIEU:             ['_id','_parentId','LoaiTaiLieu','TenTaiLieu','File','NgayTaiLieu','GhiChu'],
+  CT_CONGTAC:             ['_id','_parentId','TuNgay','DenNgay','DiaDiem','NoiDung','GhiChu'],
+  CT_NGHIVIEC:            ['_id','_parentId','NgayNghiViec','LyDoNghiViec','SoQuyetDinh','GhiChu'],
+  // Chấm công tăng ca theo TỪNG NGÀY (khác chấm công thường — ghi riêng, gắn đúng Mã tăng ca/hệ số
+  // trong DM_TANGCA), vì mỗi ngày tăng ca có thể khác loại/hệ số nhau, không gộp thành 1 khoảng ngày được.
+  CT_TANGCA:              ['_id','_parentId','Ngay','MaTangCa','SoCong','TrangThaiDuyet','GhiChu'],
+  CT_NGHILE:              ['_id','_parentId','MaPhongBan','TuNgay','DenNgay','SoNgayNghi','TrangThaiDuyet','GhiChu'],
+  CT_CASANXUAT:           ['_id','_parentId','MaPhongBan','TuNgay','DenNgay','TenCaSanXuat','GhiChu'],
+  CT_TRANGBI:             ['_id','_parentId','NgayCap','TenThietBi','SoLuong','GhiChu'],
+  // Mỗi dòng = bảng chấm công tổng hợp 1 tháng của 1 hợp đồng lao động. Các cột SoCong* khớp đúng
+  // nhóm "Hình thức công" trong DM_CC (BT/PN/CL/TRCH/DC/TC/CC/CT) để thống nhất số liệu khi tính lương.
+  CT_CHAMCONG:            ['_id','_parentId','Thang','SoCongChuan','SoCongThucTe','SoCongPhep','SoCongOm','SoCongLe',
+                            'SoCongTrungChuyen','SoCongDiChuyen','SoCongTangCa','SoNgayCom','SoCongTac',
+                            'SoNgayNghiKhongLuong','GhiChu'],
 };
 
 // =====================================================================
@@ -202,14 +261,6 @@ const TABLES_SCHEMA = {
     if (cols.indexOf('TrangThaiBanGhi') === -1) cols.push('TrangThaiBanGhi');
   });
 })();
-
-// Bảng nào thuộc sheet DM_CONGCTY_HAK, bảng nào thuộc THONGTINNHANSU_HAK
-const COMPANY_TABLES = ['DM_CONG','DM_NGUOIDUNG','DM_CHUCVU','DM_PHONGBAN','DM_LUONG','DM_PHUCAP','DM_TANGCA',
-  'DM_HOTRO','DM_BAOHIEM','DM_TNCN','CT_BACTHUE_TNCN','DM_CC','DM_GT_TNCN','DM_LUONG_BS'];
-const NHANSU_TABLES = ['DM_NHANVIEN','CT_THONGTINCANHAN','CT_TRINHDOHOCVAN','CT_NHANTHAN','CT_THONGTINTHANHTOAN',
-  'CT_SUCKHOE','CT_THONGTINLIENHE','CT_THONGTINNGHENGHIEP','CT_QUATRINHCONGTAC','CT_QUATRINHLAMVIEC',
-  'CT_KHAMSUCKHOE','CT_QUYENLOIPHEP','CT_NGHIPHEP','CT_NGHIOM','CT_CHITIETHOPDONG','CT_NOIQUY',
-  'CT_KHENTHUONG','CT_TAILIEU'];
 
 // Bảng nào áp dụng cơ chế "lịch sử phiên bản": mỗi lần Thêm/Sửa/Hủy KHÔNG ghi đè / không xoá vật lý —
 // luôn thêm 1 dòng mới GIỮ NGUYÊN _id cũ (để _parentId của các bảng con vẫn trỏ đúng), gắn
@@ -369,7 +420,7 @@ function include(filename) {
 }
 
 // =====================================================================
-// 3) SHEET ROUTING — mỗi bảng thuộc 1 trong 3 Spreadsheet ngoài
+// 3) SHEET ROUTING — mỗi bảng thuộc 1 trong 4 nhóm lưu trữ (xem STORAGE_GROUPS)
 // =====================================================================
 let _ssCache = {}; // cache trong 1 lần thực thi — tránh mở lại cùng 1 Spreadsheet nhiều lần (rất chậm)
 function getSpreadsheetById_(id) {
@@ -381,14 +432,33 @@ function getSpreadsheetById_(id) {
 function getSpreadsheetForTable_(table) {
   const cfg = getConfig_();
   if (!cfg) throw new Error('Chưa cấu hình liên kết Google Sheet. Hãy thiết lập trước.');
-  if (COMPANY_TABLES.indexOf(table) > -1) return getSpreadsheetById_(cfg.congTyId);
-  if (NHANSU_TABLES.indexOf(table) > -1) return getSpreadsheetById_(cfg.nhanSuId);
-  throw new Error('Không xác định được Sheet cho bảng: ' + table);
+  const g = groupForTable_(table);
+  return getSpreadsheetById_(cfg[mainIdField_(g)]);
 }
-function getDraftSpreadsheet_() {
+/** Sheet Nháp ứng với ĐÚNG nhóm chứa bảng này (mỗi nhóm 1 Sheet Nháp riêng). */
+function getDraftSpreadsheetForTable_(table) {
   const cfg = getConfig_();
   if (!cfg) throw new Error('Chưa cấu hình liên kết Google Sheet. Hãy thiết lập trước.');
-  return getSpreadsheetById_(cfg.draftId);
+  const g = groupForTable_(table);
+  return getSpreadsheetById_(cfg[draftIdField_(g)]);
+}
+/** Đọc nhiều bảng CÓ THỂ thuộc các nhóm lưu trữ khác nhau — tự gộp theo nhóm, chỉ gọi
+ *  batchReadSpreadsheet_ đúng 1 lần cho MỖI NHÓM liên quan (không phải 1 lần cho mỗi bảng),
+ *  rồi gộp kết quả lại thành 1 object duy nhất. Dùng cho mọi chỗ cần đọc dữ liệu từ nhiều bảng. */
+function batchReadTables_(tableNames) {
+  const cfg = getConfig_();
+  if (!cfg) throw new Error('Chưa cấu hình liên kết Google Sheet. Hãy thiết lập trước.');
+  const byGroup = {};
+  tableNames.forEach(function (t) {
+    const g = groupForTable_(t);
+    if (!byGroup[g]) byGroup[g] = [];
+    byGroup[g].push(t);
+  });
+  const result = {};
+  Object.keys(byGroup).forEach(function (g) {
+    Object.assign(result, batchReadSpreadsheet_(cfg[mainIdField_(g)], byGroup[g]));
+  });
+  return result;
 }
 
 // Các cột chứa số nhưng PHẢI giữ nguyên dạng chữ (số 0 đầu, số quá dài...) — luôn ép định dạng
@@ -458,12 +528,13 @@ function getOrCreateSheetIn_(ss, name, headers) {
   return sheet;
 }
 
-/** Tạo đủ mọi sheet còn thiếu ở CẢ 2 spreadsheet chính (không đụng tới Draft, xem ensureDraftSheets_). */
+/** Tạo đủ mọi sheet còn thiếu ở CẢ 4 spreadsheet chính (không đụng tới Nháp, xem ensureDraftSheets_). */
 function ensureAllSheets_() {
   Object.keys(TABLES_SCHEMA).forEach(name => getOrCreateSheet_(name));
-  [COMPANY_TABLES, NHANSU_TABLES].forEach((list) => {
-    if (list.length === 0) return;
-    const ss = getSpreadsheetForTable_(list[0]);
+  STORAGE_GROUP_KEYS.forEach(function (g) {
+    const tables = STORAGE_GROUPS[g].tables;
+    if (tables.length === 0) return;
+    const ss = getSpreadsheetForTable_(tables[0]);
     const s1 = ss.getSheetByName('Sheet1');
     if (s1 && ss.getSheets().length > 1 && s1.getLastRow() === 0 && s1.getLastColumn() === 0) {
       ss.deleteSheet(s1);
@@ -472,11 +543,22 @@ function ensureAllSheets_() {
   ensureDraftSheets_();
 }
 
+/** Tạo đủ sheet Nháp còn thiếu ở CẢ 4 Sheet Nháp — mỗi bảng luôn tạo đúng trong Sheet Nháp của
+ *  NHÓM chứa nó (không còn 1 Sheet Nháp chung cho tất cả như trước). */
 function ensureDraftSheets_() {
-  const ss = getDraftSpreadsheet_();
   DRAFT_TABLES.forEach(table => {
+    const ss = getDraftSpreadsheetForTable_(table);
     const headers = TABLES_SCHEMA[table].concat(DRAFT_META_HEADERS);
     getOrCreateSheetIn_(ss, table, headers);
+  });
+  STORAGE_GROUP_KEYS.forEach(function (g) {
+    const tables = STORAGE_GROUPS[g].tables.filter(t => DRAFT_TABLES.indexOf(t) > -1);
+    if (tables.length === 0) return;
+    const ss = getDraftSpreadsheetForTable_(tables[0]);
+    const s1 = ss.getSheetByName('Sheet1');
+    if (s1 && ss.getSheets().length > 1 && s1.getLastRow() === 0 && s1.getLastColumn() === 0) {
+      ss.deleteSheet(s1);
+    }
   });
 }
 
@@ -485,6 +567,19 @@ function ensureDraftSheets_() {
  *  (Sheets API trả về số ngày kể từ 1899-12-30) sang chuỗi ISO yyyy-MM-dd. */
 function isDateField_(fieldName) {
   return fieldName.indexOf('Ngay') > -1 || fieldName.indexOf('ThoiGian') > -1;
+}
+// Vài bảng cần ghi rõ GIỜ (không chỉ ngày) ở cột Từ ngày/Đến ngày — VD nghỉ nửa ngày. Khai báo
+// riêng ở đây thay vì đổi quy ước tên cột chung (TuNgay/DenNgay dùng ở rất nhiều bảng khác chỉ cần ngày).
+const DATETIME_FIELDS_BY_TABLE = {
+  CT_NGHIPHEP: ['TuNgay', 'DenNgay'],
+  CT_NGHIOM: ['TuNgay', 'DenNgay'],
+  CT_NGHIKHONGLUONG: ['TuNgay', 'DenNgay'],
+  CT_NGHILE: ['TuNgay', 'DenNgay'],
+  CT_CASANXUAT: ['TuNgay', 'DenNgay'],
+};
+function isDateTimeOverride_(table, fieldName) {
+  const list = DATETIME_FIELDS_BY_TABLE[table];
+  return !!(list && list.indexOf(fieldName) > -1);
 }
 function serialToIsoDate_(serial) {
   const utcMs = Math.round((serial - 25569) * 86400000);
@@ -496,7 +591,13 @@ function serialToIsoDateTime_(serial) {
   const utcMs = Math.round((serial - 25569) * 86400000);
   return Utilities.formatDate(new Date(utcMs), 'UTC', 'yyyy-MM-dd HH:mm:ss');
 }
-function rowsToObjectsFromApi_(values, headers) {
+/** Định dạng khớp CHÍNH XÁC input HTML "datetime-local" (yyyy-MM-ddTHH:mm, không giây) — dùng cho
+ *  các cột trong DATETIME_FIELDS_BY_TABLE, để giá trị đọc lên hiển thị lại đúng trong form. */
+function serialToIsoDateTimeLocal_(serial) {
+  const utcMs = Math.round((serial - 25569) * 86400000);
+  return Utilities.formatDate(new Date(utcMs), 'UTC', "yyyy-MM-dd'T'HH:mm");
+}
+function rowsToObjectsFromApi_(values, headers, table) {
   const out = [];
   for (let r = 1; r < values.length; r++) {
     const row = values[r] || [];
@@ -506,7 +607,9 @@ function rowsToObjectsFromApi_(values, headers) {
       let v = row[i];
       if (v === undefined || v === null) v = '';
       if (isDateField_(h) && typeof v === 'number') {
-        v = (h.indexOf('ThoiGian') > -1) ? serialToIsoDateTime_(v) : serialToIsoDate_(v);
+        if (isDateTimeOverride_(table, h)) v = serialToIsoDateTimeLocal_(v);
+        else if (h.indexOf('ThoiGian') > -1) v = serialToIsoDateTime_(v);
+        else v = serialToIsoDate_(v);
       }
       obj[h] = (v === '') ? undefined : v;
     });
@@ -517,10 +620,10 @@ function rowsToObjectsFromApi_(values, headers) {
 
 function sheetToObjects_(sheet) {
   const values = sheet.getDataRange().getValues();
-  return rowsToObjects_(values, values.length ? values[0] : []);
+  return rowsToObjects_(values, values.length ? values[0] : [], sheet.getName());
 }
 
-function rowsToObjects_(values, headers) {
+function rowsToObjects_(values, headers, table) {
   const out = [];
   for (let r = 1; r < values.length; r++) {
     const row = values[r];
@@ -529,7 +632,8 @@ function rowsToObjects_(values, headers) {
     headers.forEach((h, i) => {
       let v = row[i];
       if (v instanceof Date) {
-        v = Utilities.formatDate(v, Session.getScriptTimeZone(), h.indexOf('ThoiGian') > -1 ? 'yyyy-MM-dd HH:mm:ss' : 'yyyy-MM-dd');
+        const fmt = isDateTimeOverride_(table, h) ? "yyyy-MM-dd'T'HH:mm" : (h.indexOf('ThoiGian') > -1 ? 'yyyy-MM-dd HH:mm:ss' : 'yyyy-MM-dd');
+        v = Utilities.formatDate(v, Session.getScriptTimeZone(), fmt);
       }
       obj[h] = (v === '') ? undefined : v;
     });
@@ -568,7 +672,7 @@ function readTableData_(table) {
     sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
     styleHeaderRow_(sheet, headers.length);
   }
-  return rowsToObjects_(values, headers);
+  return rowsToObjects_(values, headers, table);
 }
 
 // =====================================================================
@@ -625,9 +729,13 @@ function applyFormulasToAllRows_(table) {
 function getAllData() {
   const cfg = getConfig_();
   if (!cfg) throw new Error('Chưa cấu hình liên kết Google Sheet. Hãy thiết lập trước.');
-  const congTyData = batchReadSpreadsheet_(cfg.congTyId, COMPANY_TABLES);
-  const nhanSuData = batchReadSpreadsheet_(cfg.nhanSuId, NHANSU_TABLES);
-  const merged = Object.assign({}, congTyData, nhanSuData);
+  const me = getCurrentUserInfo();
+  if (!me.role) throw new Error('Tài khoản của bạn chưa được cấp quyền sử dụng hệ thống.');
+  // DM_NGUOIDUNG KHÔNG được gộp vào đây — nếu không, toàn bộ email + phân quyền của mọi người dùng
+  // sẽ bị gửi xuống trình duyệt của TẤT CẢ mọi người (kể cả Nhân viên), dù giao diện có ẩn đi.
+  // Bảng này có hàm riêng listUsers() đã kiểm tra quyền (canManageUsers) trước khi trả dữ liệu.
+  const allTablesForClient = Object.keys(TABLES_SCHEMA).filter(t => t !== 'DM_NGUOIDUNG');
+  const merged = batchReadTables_(allTablesForClient);
   Object.keys(merged).forEach(function (t) { merged[t] = filterLatestVersions_(t, merged[t]); });
   return merged;
 }
@@ -670,7 +778,6 @@ function batchReadSpreadsheet_(spreadsheetId, tableNames) {
       valueRenderOption: 'UNFORMATTED_VALUE',
       dateTimeRenderOption: 'SERIAL_NUMBER',
     });
-    console.log('batchGet OK cho ' + spreadsheetId + ' (' + tableNames.length + ' bảng, nhanh)');
   } catch (e) {
     console.log('batchGet LỖI, quay về cách đọc cũ (chậm): ' + e.message);
     // Advanced Service "Sheets" chưa được bật trong project -> quay về cách đọc cũ (chậm hơn nhưng vẫn chạy được)
@@ -692,7 +799,7 @@ function batchReadSpreadsheet_(spreadsheetId, tableNames) {
       sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
       styleHeaderRow_(sheet, headers.length);
     }
-    result[table] = rowsToObjectsFromApi_(values, headers);
+    result[table] = rowsToObjectsFromApi_(values, headers, table);
   });
   return result;
 }
@@ -704,7 +811,7 @@ function saveDraftRow(table, row, action) {
   const me = getCurrentUserInfo();
   if (!me.canEdit) throw new Error('Bạn không có quyền thêm/sửa dữ liệu. Liên hệ Quản lý để được cấp quyền thao tác.');
   if (!row._id) row._id = uid_();
-  const ss = getDraftSpreadsheet_();
+  const ss = getDraftSpreadsheetForTable_(table);
   const headers = TABLES_SCHEMA[table].concat(DRAFT_META_HEADERS);
   const sheet = getOrCreateSheetIn_(ss, table, headers);
   let user = '';
@@ -717,55 +824,64 @@ function saveDraftRow(table, row, action) {
   return { draftRowId: draftRowId, targetId: row._id };
 }
 
-/** Lấy toàn bộ bản nháp đang "Chờ duyệt" ở mọi bảng — dùng cho màn hình Duyệt. */
 /** Lấy toàn bộ bản nháp đang "Chờ duyệt" ở mọi bảng — dùng cho màn hình Duyệt.
- *  Dùng batchGet gộp 1 lượt gọi API duy nhất cho tất cả bảng (thay vì đọc tuần tự từng bảng — rất chậm). */
+ *  Mỗi nhóm lưu trữ có 1 Sheet Nháp riêng -> gộp 1 lượt batchGet cho MỖI nhóm (4 lượt, thay vì
+ *  đọc tuần tự từng bảng — vẫn nhanh hơn nhiều so với đọc từng bảng một, chỉ là không gộp được
+ *  chung 1 lượt duy nhất như trước vì giờ có 4 Sheet Nháp vật lý khác nhau). */
 function getPendingDrafts() {
-  const ss = getDraftSpreadsheet_();
+  const me = getCurrentUserInfo();
+  if (!me.role) throw new Error('Tài khoản của bạn chưa được cấp quyền sử dụng hệ thống.');
   const cfg = getConfig_();
-  const existingNames = ss.getSheets().map(s => s.getName());
-  DRAFT_TABLES.forEach(t => {
-    if (existingNames.indexOf(t) === -1) {
-      const headers = TABLES_SCHEMA[t].concat(DRAFT_META_HEADERS);
-      const sheet = ss.insertSheet(t);
-      sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
-      styleHeaderRow_(sheet, headers.length);
-    }
-  });
+  if (!cfg) throw new Error('Chưa cấu hình liên kết Google Sheet. Hãy thiết lập trước.');
+  const result = {};
 
-  let response;
-  try {
-    response = Sheets.Spreadsheets.Values.batchGet(cfg.draftId, {
-      ranges: DRAFT_TABLES,
-      valueRenderOption: 'UNFORMATTED_VALUE',
-      dateTimeRenderOption: 'SERIAL_NUMBER',
+  STORAGE_GROUP_KEYS.forEach(function (g) {
+    const tablesInGroup = DRAFT_TABLES.filter(t => STORAGE_GROUPS[g].tables.indexOf(t) > -1);
+    if (tablesInGroup.length === 0) return;
+    const ss = getSpreadsheetById_(cfg[draftIdField_(g)]);
+    const existingNames = ss.getSheets().map(s => s.getName());
+    tablesInGroup.forEach(t => {
+      if (existingNames.indexOf(t) === -1) {
+        const headers = TABLES_SCHEMA[t].concat(DRAFT_META_HEADERS);
+        const sheet = ss.insertSheet(t);
+        sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+        styleHeaderRow_(sheet, headers.length);
+      }
     });
-  } catch (e) {
-    // Chưa bật Sheets API -> quay về cách đọc cũ (chậm hơn nhưng vẫn chạy được)
-    const result = {};
-    DRAFT_TABLES.forEach(table => {
+
+    let response;
+    try {
+      response = Sheets.Spreadsheets.Values.batchGet(cfg[draftIdField_(g)], {
+        ranges: tablesInGroup,
+        valueRenderOption: 'UNFORMATTED_VALUE',
+        dateTimeRenderOption: 'SERIAL_NUMBER',
+      });
+    } catch (e) {
+      // Chưa bật Sheets API -> quay về cách đọc cũ (chậm hơn nhưng vẫn chạy được) cho riêng nhóm này
+      tablesInGroup.forEach(table => {
+        const headers = TABLES_SCHEMA[table].concat(DRAFT_META_HEADERS);
+        const sheet = getOrCreateSheetIn_(ss, table, headers);
+        const rows = sheetToObjects_(sheet).filter(r => r.TrangThaiDuyet === 'Chờ duyệt');
+        if (rows.length) result[table] = rows;
+      });
+      return;
+    }
+
+    (response.valueRanges || []).forEach((vr, i) => {
+      const table = tablesInGroup[i];
       const headers = TABLES_SCHEMA[table].concat(DRAFT_META_HEADERS);
-      const sheet = getOrCreateSheetIn_(ss, table, headers);
-      const rows = sheetToObjects_(sheet).filter(r => r.TrangThaiDuyet === 'Chờ duyệt');
+      const values = vr.values || [];
+      if (values.length === 0) return;
+      const rows = rowsToObjectsFromApi_(values, headers, table).filter(r => r.TrangThaiDuyet === 'Chờ duyệt');
       if (rows.length) result[table] = rows;
     });
-    return result;
-  }
-
-  const result = {};
-  (response.valueRanges || []).forEach((vr, i) => {
-    const table = DRAFT_TABLES[i];
-    const headers = TABLES_SCHEMA[table].concat(DRAFT_META_HEADERS);
-    const values = vr.values || [];
-    if (values.length === 0) return;
-    const rows = rowsToObjectsFromApi_(values, headers).filter(r => r.TrangThaiDuyet === 'Chờ duyệt');
-    if (rows.length) result[table] = rows;
   });
+
   return result;
 }
 
 function findDraftRow_(table, draftRowId) {
-  const ss = getDraftSpreadsheet_();
+  const ss = getDraftSpreadsheetForTable_(table);
   const headers = TABLES_SCHEMA[table].concat(DRAFT_META_HEADERS);
   const sheet = getOrCreateSheetIn_(ss, table, headers);
   const values = sheet.getDataRange().getValues();
@@ -775,7 +891,9 @@ function findDraftRow_(table, draftRowId) {
       const payload = {};
       TABLES_SCHEMA[table].forEach((h, i) => {
         let v = values[r][i];
-        if (v instanceof Date) v = Utilities.formatDate(v, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+        if (v instanceof Date) {
+          v = Utilities.formatDate(v, Session.getScriptTimeZone(), isDateTimeOverride_(table, h) ? "yyyy-MM-dd'T'HH:mm" : 'yyyy-MM-dd');
+        }
         payload[h] = (v === '') ? undefined : v;
       });
       return { sheet, rowIndex: r + 1, headers, payload, action: values[r][headers.indexOf('HanhDong')] };
@@ -811,14 +929,66 @@ function getLatestRowById_(table, id) {
 const EMP_DIRECT_HISTORY_TABLES = ['CT_THONGTINCANHAN','CT_TRINHDOHOCVAN','CT_NHANTHAN','CT_THONGTINTHANHTOAN',
   'CT_SUCKHOE','CT_THONGTINLIENHE','CT_THONGTINNGHENGHIEP','CT_QUATRINHCONGTAC','CT_QUATRINHLAMVIEC'];
 // Bảng con của từng hợp đồng lao động (_parentId = _id của CT_QUATRINHLAMVIEC)
-const EMP_CONTRACT_HISTORY_TABLES = ['CT_KHAMSUCKHOE','CT_QUYENLOIPHEP','CT_NGHIPHEP','CT_NGHIOM',
-  'CT_CHITIETHOPDONG','CT_NOIQUY','CT_KHENTHUONG','CT_TAILIEU'];
+const EMP_CONTRACT_HISTORY_TABLES = ['CT_KHAMSUCKHOE','CT_QUYENLOIPHEP','CT_NGHIPHEP','CT_NGHIKHONGLUONG','CT_NGHIOM',
+  'CT_CHITIETHOPDONG','CT_NOIQUY','CT_KHENTHUONG','CT_TAILIEU','CT_CONGTAC','CT_NGHIVIEC','CT_TANGCA','CT_NGHILE','CT_CASANXUAT','CT_TRANGBI','CT_CHAMCONG'];
 
 function pushHistoryEvent_(events, table, row, tuNgay, denNgay) {
   const d = row.HieuLucTuNgay || '';
   if (tuNgay && d && d < tuNgay) return;
   if (denNgay && d && d > denNgay) return;
   events.push({ table: table, row: row });
+}
+
+/** Dữ liệu cho màn "Tổng hợp chấm công" — liệt kê các dòng Chấm công đã có, kèm sẵn Phòng ban/Chức vụ
+ *  hiện tại của từng nhân viên (lấy từ Quá trình công tác) để lọc theo Kỳ lương/Mã NV/Phòng ban/Chức vụ. */
+function getAttendanceSummary() {
+  const me = getCurrentUserInfo();
+  if (!me.role) throw new Error('Bạn chưa có quyền truy cập.');
+  const cfg = getConfig_();
+  if (!cfg) throw new Error('Chưa cấu hình liên kết Google Sheet. Hãy thiết lập trước.');
+
+  const data = batchReadTables_(['DM_NHANVIEN', 'CT_QUATRINHLAMVIEC', 'CT_QUATRINHCONGTAC', 'CT_CHAMCONG', 'DM_PHONGBAN', 'DM_CHUCVU']);
+  Object.keys(data).forEach(function (t) { data[t] = filterLatestVersions_(t, data[t]); });
+
+  const empById = {}; (data['DM_NHANVIEN'] || []).forEach(function (e) { empById[e._id] = e; });
+  const hdldById = {}; (data['CT_QUATRINHLAMVIEC'] || []).forEach(function (h) { hdldById[h._id] = h; });
+  const pbById = {}; (data['DM_PHONGBAN'] || []).forEach(function (p) { pbById[p._id] = p; });
+  const cvById = {}; (data['DM_CHUCVU'] || []).forEach(function (c) { cvById[c._id] = c; });
+
+  // Phòng ban/chức vụ HIỆN TẠI của từng nhân viên = dòng Quá trình công tác có "Từ ngày" mới nhất.
+  const currentAssignment = {};
+  (data['CT_QUATRINHCONGTAC'] || []).forEach(function (r) {
+    const existing = currentAssignment[r._parentId];
+    if (!existing || String(r.TuNgay || '') > String(existing.TuNgay || '')) currentAssignment[r._parentId] = r;
+  });
+
+  const rows = (data['CT_CHAMCONG'] || []).map(function (r) {
+    const hdld = hdldById[r._parentId];
+    const empId = hdld ? hdld._parentId : null;
+    const emp = empId ? empById[empId] : null;
+    const asg = empId ? currentAssignment[empId] : null;
+    const pb = asg ? pbById[asg.MaPB] : null;
+    const cv = asg ? cvById[asg.MaCV] : null;
+    return {
+      chamCongId: r._id,
+      thang: r.Thang,
+      maNV: emp ? emp.MaNV : '',
+      tenNhanVien: emp ? emp.TenNhanVien : '(?)',
+      empId: empId,
+      maPhongBan: asg ? asg.MaPB : '',
+      tenPhongBan: pb ? pb.TenPB : '',
+      maChucVu: asg ? asg.MaCV : '',
+      tenChucVu: cv ? cv.TenCV : '',
+      soCongChuan: r.SoCongChuan, soCongThucTe: r.SoCongThucTe, soCongPhep: r.SoCongPhep,
+      soCongOm: r.SoCongOm, soNgayNghiKhongLuong: r.SoNgayNghiKhongLuong,
+      soCongTangCa: r.SoCongTangCa, soCongTac: r.SoCongTac,
+      trangThaiBanGhi: r.TrangThaiBanGhi,
+    };
+  });
+  rows.sort(function (a, b) {
+    return String(b.thang || '').localeCompare(String(a.thang || '')) || String(a.tenNhanVien || '').localeCompare(String(b.tenNhanVien || ''), 'vi');
+  });
+  return rows;
 }
 
 /** Lấy TOÀN BỘ lịch sử thay đổi (mọi phiên bản, KHÔNG lọc mới nhất) của 1 nhân viên trong khoảng
@@ -829,24 +999,31 @@ function getEmployeeHistory(empId, tuNgay, denNgay) {
   if (!me.role) throw new Error('Bạn chưa có quyền truy cập.');
   const cfg = getConfig_();
   if (!cfg) throw new Error('Chưa cấu hình liên kết Google Sheet. Hãy thiết lập trước.');
-  const emp = getLatestRowById_('DM_NHANVIEN', empId);
-  if (!emp) throw new Error('Không tìm thấy nhân viên.');
+
+  // Gộp toàn bộ bảng cần đọc (kể cả DM_NHANVIEN) — batchReadTables_ tự nhóm theo đúng Sheet vật lý
+  // (giờ có thể trải trên nhiều nhóm: Cấp 1/Cấp 2/Phát sinh), chỉ gọi API 1 lần cho MỖI nhóm liên quan.
+  const allTables = EMP_DIRECT_HISTORY_TABLES.concat(EMP_CONTRACT_HISTORY_TABLES, ['DM_NHANVIEN']);
+  const data = batchReadTables_(allTables);
+
+  const empVersions = (data['DM_NHANVIEN'] || []).filter(function (r) { return r._id === empId; });
+  if (empVersions.length === 0) throw new Error('Không tìm thấy nhân viên.');
+  empVersions.sort(function (a, b) { return String(a.HieuLucTuNgay || '').localeCompare(String(b.HieuLucTuNgay || '')); });
+  const emp = empVersions[empVersions.length - 1];
 
   const events = [];
 
   EMP_DIRECT_HISTORY_TABLES.forEach(function (table) {
-    const rows = sheetToObjects_(getOrCreateSheet_(table)).filter(function (r) { return r._parentId === empId; });
-    rows.forEach(function (r) { pushHistoryEvent_(events, table, r, tuNgay, denNgay); });
+    (data[table] || []).filter(function (r) { return r._parentId === empId; })
+      .forEach(function (r) { pushHistoryEvent_(events, table, r, tuNgay, denNgay); });
   });
 
   const hdldIdSet = {};
-  sheetToObjects_(getOrCreateSheet_('CT_QUATRINHLAMVIEC'))
-    .filter(function (r) { return r._parentId === empId; })
+  (data['CT_QUATRINHLAMVIEC'] || []).filter(function (r) { return r._parentId === empId; })
     .forEach(function (r) { hdldIdSet[r._id] = true; });
 
   EMP_CONTRACT_HISTORY_TABLES.forEach(function (table) {
-    const rows = sheetToObjects_(getOrCreateSheet_(table)).filter(function (r) { return hdldIdSet[r._parentId]; });
-    rows.forEach(function (r) { pushHistoryEvent_(events, table, r, tuNgay, denNgay); });
+    (data[table] || []).filter(function (r) { return hdldIdSet[r._parentId]; })
+      .forEach(function (r) { pushHistoryEvent_(events, table, r, tuNgay, denNgay); });
   });
 
   events.sort(function (a, b) { return String(a.row.HieuLucTuNgay || '').localeCompare(String(b.row.HieuLucTuNgay || '')); });
@@ -881,6 +1058,19 @@ function commitChange_(table, payload, action) {
   const rowArray = headers.map(function (h) { return (row[h] === undefined || row[h] === null) ? '' : row[h]; });
   sheet.appendRow(rowArray);
   applyComputedFormula_(table, sheet.getLastRow());
+}
+
+/** "Ghi hồ sơ" — dùng ở menu Nghiệp vụ: ghi THẲNG vào bản chính, bỏ qua bước Nháp/Chờ duyệt.
+ *  Chỉ người có quyền Duyệt (canApprove) mới được dùng — vì bản chất đây là tự làm cả 2 việc
+ *  "nhập" và "duyệt" cùng lúc. Vì mọi bảng đều theo cơ chế lịch sử phiên bản (append-only), dòng vừa
+ *  ghi này KHÔNG thể sửa đè — muốn đổi phải tạo phiên bản mới (Sửa) và vẫn phải qua Nháp -> Duyệt. */
+function commitQuickOps(table, row, action) {
+  const me = getCurrentUserInfo();
+  if (!me.canApprove) throw new Error('Chỉ người có quyền Duyệt mới được "Ghi hồ sơ" trực tiếp. Dùng "Lưu nghiệp vụ" để gửi chờ duyệt.');
+  if (!TABLES_SCHEMA[table]) throw new Error('Bảng không tồn tại: ' + table);
+  if (!row._id) row._id = uid_();
+  commitChange_(table, row, action || 'Thêm mới');
+  return true;
 }
 
 /** Duyệt 1 bản nháp — ghi thật vào bản chính (DM_CONGCTY_HAK / THONGTINNHANSU_HAK), rồi đánh dấu
@@ -926,6 +1116,7 @@ function bulkImportData(dataByTable) {
     applyFormulasToAllRows_(table); // tự tính lại "Hiệu lực đến" cho các bảng có versioning
     summary[table] = arrays.length;
   });
+  fillMissingTrangThaiBanGhi_(); // các dòng vừa nạp chưa có "Trạng thái bản ghi" -> điền "Thêm mới"
   return summary;
 }
 
@@ -1087,11 +1278,11 @@ function seedRealDanhMuc() {
   ]);
 
   appendRows_('CT_BACTHUE_TNCN', [
-    [uid_(),tncnLT,1,0,10000000,0.05],
-    [uid_(),tncnLT,2,10000000,30000000,0.10],
-    [uid_(),tncnLT,3,30000000,60000000,0.20],
-    [uid_(),tncnLT,4,60000000,100000000,0.30],
-    [uid_(),tncnLT,5,100000000,0,0.35],
+    [uid_(),tncnLT,1,0,10000000,0.05,500000],
+    [uid_(),tncnLT,2,10000000,30000000,0.10,2000000],
+    [uid_(),tncnLT,3,30000000,60000000,0.20,6000000],
+    [uid_(),tncnLT,4,60000000,100000000,0.30,12000000],
+    [uid_(),tncnLT,5,100000000,0,0.35,''],
   ]);
 
   appendRows_('DM_GT_TNCN', [
@@ -1117,6 +1308,8 @@ function appendRows_(table, rows) {
 // 7) SEED — 1 nhân viên mẫu (tham chiếu đúng danh mục thật ở trên)
 // =====================================================================
 function seedDemoEmployee() {
+  const me = getCurrentUserInfo();
+  if (!me.canEdit) throw new Error('Bạn không có quyền thêm dữ liệu.');
   ensureAllSheets_();
   seedRealDanhMucIfEmpty_();
 
@@ -1144,20 +1337,20 @@ function seedDemoEmployee() {
   appendRows_('CT_NHANTHAN', [[uid_(),empId,'Nguyễn Văn Bảo','Con','','','','8801234567',true,'2022-03-01']]);
   appendRows_('CT_THONGTINTHANHTOAN', [[uid_(),empId,'0071001234567','Vietcombank','CN TP.HCM','2021-05-01']]);
   appendRows_('CT_SUCKHOE', [[uid_(),empId,'Không có','Bình thường','2021-05-01']]);
-  appendRows_('CT_QUATRINHCONGTAC', [[uid_(),empId,'2021-05-10','',pbSX?pbSX._id:'',cvCN?cvCN._id:'','Bổ nhiệm','Tuyển dụng ban đầu']]);
+  appendRows_('CT_QUATRINHCONGTAC', [[uid_(),empId,'2021-05-10','',pbSX?pbSX._id:'',cvCN?cvCN._id:'','Bổ nhiệm','','Tuyển dụng ban đầu']]);
 
   const hdldId = uid_();
   const expireSoon = new Date(now); expireSoon.setDate(expireSoon.getDate() + 20);
   appendRows_('CT_QUATRINHLAMVIEC', [[hdldId,empId,'HDLD-2021-001','2021-05-10',fmtDate(expireSoon),
     'Xác định thời hạn','2021-05-10','Hợp đồng 3 năm, sắp đến hạn tái ký']]);
-  appendRows_('CT_NGHIPHEP', [[uid_(),hdldId,y+'-03-04',y+'-03-05',2,'Đã duyệt','Trần Thị Hoa','Nghỉ phép năm']]);
+  appendRows_('CT_NGHIPHEP', [[uid_(),hdldId,pbSX?pbSX._id:'',y+'-03-04',y+'-03-05',2,'Đã duyệt','Trần Thị Hoa','Nghỉ phép năm']]);
 
   const hopdongId = uid_();
   appendRows_('CT_CHITIETHOPDONG', [[hopdongId,hdldId,'CT-2021-01','2021-05-10','',
     pbSX?pbSX._id:'',cvCN?cvCN._id:'','LSP',luongSP?luongSP._id:'',4680000,6000000,'Chuyển khoản',
     baoHiemDu?baoHiemDu._id:'',tncnLT?tncnLT._id:'','','','',
     'Hợp đồng gốc','2021-05-10','']]);
-  appendRows_('CT_NOIQUY', [[uid_(),hopdongId,y+'-04-02','Đi trễ 3 lần trong tháng','Đang xử lý','Nhắc nhở bằng văn bản']]);
+  appendRows_('CT_NOIQUY', [[uid_(),hdldId,y+'-04-02','Đi trễ 3 lần trong tháng','Đang xử lý','Nhắc nhở bằng văn bản']]);
 
   ['CT_QUATRINHCONGTAC','CT_QUATRINHLAMVIEC','CT_NGHIPHEP','CT_CHITIETHOPDONG','CT_NOIQUY',
    'CT_THONGTINCANHAN','CT_NHANTHAN','CT_THONGTINTHANHTOAN','CT_SUCKHOE','DM_NHANVIEN']
