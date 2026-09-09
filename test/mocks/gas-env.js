@@ -219,6 +219,54 @@ function createGasEnv(opts = {}) {
     Permission: { VIEW: 'VIEW' },
   };
   const ScriptApp = { getService: () => ({ getUrl: () => 'https://script.google.com/macros/s/FAKE/exec' }) };
+
+  // Giả lập tối thiểu Advanced Drive Service (v3) — chỉ phần Permissions dùng bởi
+  // listDataSharing/shareDataAccess/revokeDataAccess. Lưu ý tên phương thức thật của Apps Script
+  // là "remove" (không phải "delete", vì "delete" là từ khoá dành riêng trong JS) — cố tình đặt tên
+  // y hệt ở đây để bug gõ nhầm (nếu có) trong Code.gs sẽ lộ ra qua test thay vì chỉ vỡ khi chạy thật.
+  state.drivePermissions = {}; // fileId -> [{id, type, role, emailAddress, displayName}]
+  state.drivePermIdCounter = 0;
+  // state.drivePageSize (mặc định không giới hạn): đặt 1 số nhỏ trong test để giả lập Drive API v3
+  // trả kết quả theo nhiều trang (nextPageToken) — dùng để kiểm tra listAllPermissions_ có tự đi hết
+  // các trang hay không, thay vì chỉ đọc trang đầu.
+  // state.driveFailFileIds (Set, mặc định rỗng): fileId nào có trong set này sẽ khiến
+  // create/update/remove ném lỗi — dùng để giả lập 1 trong 3 sheet lỗi giữa chừng (VD Drive API
+  // rate-limit) và kiểm tra runOnAllDataSheets_ vẫn áp dụng cho 2 sheet còn lại + báo lỗi rõ ràng.
+  state.driveFailFileIds = new Set();
+  const Drive = {
+    Permissions: {
+      list(fileId, optionalArgs) {
+        const all = state.drivePermissions[fileId] || [];
+        const pageSize = state.drivePageSize || Infinity;
+        const start = (optionalArgs && optionalArgs.pageToken) ? parseInt(optionalArgs.pageToken, 10) : 0;
+        const pageItems = all.slice(start, start + pageSize).map(p => Object.assign({}, p));
+        const nextStart = start + pageSize;
+        const result = { permissions: pageItems };
+        if (nextStart < all.length) result.nextPageToken = String(nextStart);
+        return result;
+      },
+      create(resource, fileId) {
+        if (state.driveFailFileIds.has(fileId)) throw new Error(`Fake Drive: lỗi giả lập trên file ${fileId}`);
+        if (!state.drivePermissions[fileId]) state.drivePermissions[fileId] = [];
+        state.drivePermIdCounter += 1;
+        const perm = Object.assign({ id: 'perm_' + state.drivePermIdCounter }, resource);
+        state.drivePermissions[fileId].push(perm);
+        return Object.assign({}, perm);
+      },
+      update(resource, fileId, permissionId) {
+        if (state.driveFailFileIds.has(fileId)) throw new Error(`Fake Drive: lỗi giả lập trên file ${fileId}`);
+        const perm = (state.drivePermissions[fileId] || []).find(p => p.id === permissionId);
+        if (!perm) throw new Error(`Fake Drive: permission ${permissionId} không tồn tại trên file ${fileId}`);
+        Object.assign(perm, resource);
+        return Object.assign({}, perm);
+      },
+      remove(fileId, permissionId) {
+        if (state.driveFailFileIds.has(fileId)) throw new Error(`Fake Drive: lỗi giả lập trên file ${fileId}`);
+        const list = state.drivePermissions[fileId] || [];
+        state.drivePermissions[fileId] = list.filter(p => p.id !== permissionId);
+      },
+    },
+  };
   const HtmlService = {
     createTemplateFromFile: () => ({ evaluate: () => ({ setTitle() { return this; }, addMetaTag() { return this; } }) }),
     createHtmlOutputFromFile: () => ({ getContent: () => '' }),
@@ -231,6 +279,7 @@ function createGasEnv(opts = {}) {
     Utilities: makeUtilities(state),
     Session,
     DriveApp,
+    Drive,
     ScriptApp,
     HtmlService,
   };
@@ -251,6 +300,12 @@ function createGasEnv(opts = {}) {
     exports: context.__EXPORTS__,
     setCurrentUser(email) { state.currentUserEmail = email; },
     getSpreadsheet(id) { return SpreadsheetApp.openById(id); },
+    /** Seed sẵn 1 permission (thường dùng để giả lập owner có sẵn trên file) trước khi test. */
+    seedPermission(fileId, perm) {
+      if (!state.drivePermissions[fileId]) state.drivePermissions[fileId] = [];
+      state.drivePermIdCounter += 1;
+      state.drivePermissions[fileId].push(Object.assign({ id: 'perm_' + state.drivePermIdCounter }, perm));
+    },
   };
 }
 

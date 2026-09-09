@@ -538,6 +538,8 @@ let PENDING_COUNT = 0;
 let CURRENT_USER = null;   // {email, role, hoTen, canAdmin, canApprove, canEdit, canManageUsers}
 let USER_LIST = [];        // dùng cho màn "Người dùng"
 let userModalState = null; // {row} hoặc null
+let sharingModalOpen = false;
+let SHARING_STATE = { loading:false, error:null, list:null, email:'', role:'reader', busy:false };
 let importModalOpen = false;
 let IMPORT_STATE = { busy:false, preview:null, error:null };
 let HEADCOUNT_RANGE = { tuNgay:'', denNgay:'' };
@@ -871,6 +873,7 @@ function render(){
     ${userModalState ? renderUserModal() : ''}
     ${importModalOpen ? renderImportModal() : ''}
     ${systemMenuOpen ? renderSystemMenu() : ''}
+    ${sharingModalOpen ? renderSharingModal() : ''}
     ${toastMsg ? `<div class="toast">${esc(toastMsg)}</div>` : ''}
   `;
   bindEvents();
@@ -1008,6 +1011,11 @@ function renderSystemMenu(){
 
         ${CURRENT_USER && CURRENT_USER.canAdmin ? `
         <div style="border-top:1px solid var(--border); margin-top:6px; padding-top:10px;">
+          <button class="btn btn-ghost" style="width:100%;justify-content:flex-start;padding:14px 16px;" data-action="menu-open-sharing">
+            🔐&nbsp;&nbsp;Chia sẻ &amp; phân quyền dữ liệu
+          </button>
+          <div class="hint" style="margin:-4px 0 6px 4px;">Cấp/thu hồi quyền truy cập Google Sheet (cả 3 sheet dữ liệu) cho người khác — KHÁC với phân quyền trong app (mục "Người dùng").</div>
+
           <button class="btn btn-ghost" style="width:100%;justify-content:flex-start;padding:14px 16px;" data-action="menu-fix-leading-zero">
             0️⃣&nbsp;&nbsp;Sửa lỗi mất số 0 đầu (CCCD, SĐT, số tài khoản...)
           </button>
@@ -1017,6 +1025,83 @@ function renderSystemMenu(){
           </button>
           <div class="hint" style="margin:-4px 0 0 4px;">Xoá sạch mọi dòng dữ liệu ở cả 2 Sheet chính (DM & Thông tin nhân sự) — chỉ giữ lại tiêu đề cột. <b>Không thể hoàn tác.</b> Dùng khi cần làm lại từ đầu theo cấu trúc mới.</div>
         </div>` : ''}
+      </div>
+    </div>
+  </div>`;
+}
+
+const DATA_ROLE_LABELS = { reader:'Chỉ xem', commenter:'Bình luận', writer:'Chỉnh sửa' };
+
+const DATA_SHARING_KEYS = ['congTy','nhanSu','draft'];
+
+function renderRolesBadge(roles){
+  roles = roles || {};
+  // Phải khớp ĐỦ CẢ 3 sheet cùng 1 quyền mới coi là nhất quán — thiếu hẳn quyền trên 1 sheet nào đó
+  // (VD 1 lượt shareDataAccess bị lỗi giữa chừng ở sheet thứ 3) cũng phải cảnh báo, không chỉ khi
+  // quyền giữa các sheet khác nhau, nếu không sẽ hiện lầm thành "đã có đủ quyền" trong khi thực ra
+  // đang thiếu quyền trên 1 sheet.
+  const values = Array.from(new Set(DATA_SHARING_KEYS.map(k=>roles[k]).filter(Boolean)));
+  if(values.length === 0) return '<span class="tag tag-grey">—</span>';
+  if(values.length === 1 && DATA_SHARING_KEYS.every(k=>roles[k])) {
+    return `<span class="tag tag-green">${esc(DATA_ROLE_LABELS[values[0]]||values[0])}</span>`;
+  }
+  // Lệch quyền giữa 3 sheet, hoặc thiếu hẳn quyền trên 1/3 sheet — cảnh báo rõ thay vì hiện sai.
+  const parts = DATA_SHARING_KEYS.map(k=> roles[k] ? `${k}: ${DATA_ROLE_LABELS[roles[k]]||roles[k]}` : `${k}: chưa có quyền`);
+  return `<span class="tag tag-amber" title="Quyền không giống nhau giữa 3 sheet — chia sẻ lại để đồng bộ">⚠️ Lệch (${esc(parts.join(', '))})</span>`;
+}
+
+function renderSharingModal(){
+  const st = SHARING_STATE;
+  return `<div class="overlay" data-action="close-sharing-modal-overlay">
+    <div class="modal" style="width:640px;">
+      <div class="modal-head">
+        <div class="modal-title">🔐 Chia sẻ &amp; phân quyền dữ liệu</div>
+        <button class="modal-close" data-action="close-sharing-modal">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="hint" style="margin-bottom:14px;">
+          Cấp/thu hồi quyền truy cập trực tiếp Google Sheet (áp dụng cho CẢ 3 sheet dữ liệu cùng lúc).
+          Đây là quyền trên file Google Sheet — KHÁC với phân quyền trong app ở mục "Người dùng".
+          <b>Chỉnh sửa (writer)</b> cho phép sửa tay trực tiếp trên Sheet, có thể phá vỡ cơ chế lịch sử phiên bản của app — chỉ cấp khi thực sự cần.
+        </div>
+
+        <form id="sharing-form" onsubmit="return false;" style="display:flex; gap:10px; align-items:flex-end; margin-bottom:16px;">
+          <div class="field" style="flex:1; margin:0;">
+            <label>Email</label>
+            <input type="text" id="sharing-email" placeholder="ten@gmail.com" value="${esc(st.email)}">
+          </div>
+          <div class="field" style="width:160px; margin:0;">
+            <label>Quyền</label>
+            <select id="sharing-role">
+              <option value="reader" ${st.role==='reader'?'selected':''}>Chỉ xem</option>
+              <option value="commenter" ${st.role==='commenter'?'selected':''}>Bình luận</option>
+              <option value="writer" ${st.role==='writer'?'selected':''}>Chỉnh sửa</option>
+            </select>
+          </div>
+          <button type="button" class="btn btn-primary" data-action="share-data-access" ${st.busy?'disabled':''}>${st.busy?'⏳ Đang lưu…':'➕ Chia sẻ'}</button>
+        </form>
+
+        ${st.loading ? `<div class="empty-state"><div class="icon">⏳</div><div class="msg">Đang tải danh sách chia sẻ…</div></div>` : ''}
+        ${st.error ? `<div class="empty-state"><div class="icon">⚠️</div><div class="msg">${esc(st.error)}</div></div>` : ''}
+        ${(!st.loading && !st.error && st.list) ? (st.list.length===0 ? `
+          <div class="empty-state"><div class="icon">📭</div><div class="msg">Chưa chia sẻ cho ai khác ngoài chủ sở hữu.</div></div>
+        ` : `
+          <div class="table-wrap"><table>
+            <thead><tr><th>Email</th><th>Quyền</th><th></th></tr></thead>
+            <tbody>
+              ${st.list.map(x=>`
+                <tr>
+                  <td style="font-weight:700;">${esc(x.email)}${x.displayName?` <span style="font-weight:400;color:var(--text-mute);">(${esc(x.displayName)})</span>`:''}</td>
+                  <td>${renderRolesBadge(x.roles)}</td>
+                  <td class="actions"><button class="btn-danger-text" data-action="revoke-data-access" data-email="${esc(x.email)}">🗑️ Thu hồi</button></td>
+                </tr>`).join('')}
+            </tbody>
+          </table></div>
+        `) : ''}
+      </div>
+      <div class="modal-foot">
+        <div></div>
+        <button class="btn btn-ghost" data-action="close-sharing-modal">Đóng</button>
       </div>
     </div>
   </div>`;
@@ -1475,6 +1560,13 @@ function renderPendingView(){
 async function refreshUsers(){
   try{ USER_LIST = await runServer('listUsers'); }
   catch(e){ USER_LIST = []; showToast('⚠️ Lỗi tải danh sách người dùng: ' + (e.message||e)); }
+}
+
+async function loadSharingList(){
+  SHARING_STATE.loading = true; SHARING_STATE.error = null; render();
+  try{ SHARING_STATE.list = await runServer('listDataSharing'); }
+  catch(e){ SHARING_STATE.list = null; SHARING_STATE.error = (e && e.message) ? e.message : String(e); }
+  SHARING_STATE.loading = false; render();
 }
 function roleTagClass(role){
   if(role==='Admin') return 'tag-red';
@@ -2761,6 +2853,51 @@ function bindEvents(){
     if(action==='close-import-modal' || action==='close-import-modal-overlay'){
       if(action==='close-import-modal-overlay' && e.target !== el) return;
       importModalOpen = false; render(); return;
+    }
+    if(action==='menu-open-sharing'){
+      systemMenuOpen = false;
+      SHARING_STATE = { loading:true, error:null, list:null, email:'', role:'reader', busy:false };
+      sharingModalOpen = true;
+      render();
+      await loadSharingList();
+      return;
+    }
+    if(action==='close-sharing-modal' || action==='close-sharing-modal-overlay'){
+      if(action==='close-sharing-modal-overlay' && e.target !== el) return;
+      sharingModalOpen = false; render(); return;
+    }
+    if(action==='share-data-access'){
+      const emailEl = document.getElementById('sharing-email'), roleEl = document.getElementById('sharing-role');
+      const email = emailEl ? emailEl.value.trim() : '';
+      const role = roleEl ? roleEl.value : 'reader';
+      if(!email){ showToast('⚠️ Vui lòng nhập email.'); return; }
+      SHARING_STATE.busy = true; SHARING_STATE.email = email; SHARING_STATE.role = role; render();
+      try{
+        await runServer('shareDataAccess', email, role);
+        showToast('✅ Đã chia sẻ dữ liệu cho ' + email + '.');
+        SHARING_STATE.email = '';
+        await loadSharingList();
+      }catch(err){
+        showToast('⚠️ Lỗi khi chia sẻ: ' + (err.message||err));
+        // shareDataAccess có thể đã áp dụng thành công cho 1-2/3 sheet trước khi lỗi (xem
+        // runOnAllDataSheets_ ở server) — tải lại danh sách để bảng không hiện sai trạng thái cũ.
+        await loadSharingList();
+      }
+      SHARING_STATE.busy = false; render(); return;
+    }
+    if(action==='revoke-data-access'){
+      const email = el.dataset.email;
+      if(!confirm('Thu hồi toàn bộ quyền truy cập Google Sheet của "' + email + '" (cả 3 sheet dữ liệu)? Người này sẽ không mở được link Sheet nữa — quyền trong app (nếu có, ở mục "Người dùng") không bị ảnh hưởng.')) return;
+      SHARING_STATE.busy = true; render();
+      try{
+        await runServer('revokeDataAccess', email);
+        showToast('✅ Đã thu hồi quyền của ' + email + '.');
+        await loadSharingList();
+      }catch(err){
+        showToast('⚠️ Lỗi khi thu hồi: ' + (err.message||err));
+        await loadSharingList();
+      }
+      SHARING_STATE.busy = false; render(); return;
     }
     if(action==='run-import'){ await runImport(); return; }
     if(action==='menu-change-links'){

@@ -359,3 +359,133 @@ test('bulkImportData: chỉ Admin được gọi, bỏ qua bảng lạ và DM_NG
   // realm) — dùng {...summary} để có 1 plain object thuộc realm của Node/test trước khi so sánh.
   assert.deepEqual({ ...summary }, { DM_CHUCVU: 1 });
 });
+
+/* =========================================================================
+   8) CHIA SẺ / THU HỒI QUYỀN TRUY CẬP 3 SHEET DỮ LIỆU (listDataSharing/shareDataAccess/revokeDataAccess)
+   ========================================================================= */
+function seedOwnerOnAllThree(env) {
+  [env.congTyId, env.nhanSuId, env.draftId].forEach(id => {
+    env.seedPermission(id, { type: 'user', role: 'owner', emailAddress: 'saoluucvhak@gmail.com' });
+  });
+}
+
+test('shareDataAccess: chặn người không phải Admin, báo lỗi email rỗng hoặc quyền không hợp lệ', () => {
+  const env = createConfiguredGasEnv();
+  seedOwnerOnAllThree(env);
+  env.context.getCurrentUserInfo();
+  env.context.saveUserPermission({ Email: 'ql1@example.com', HoTen: 'QL', VaiTro: 'Quản lý', TrangThai: 'Hoạt động' });
+  env.setCurrentUser('ql1@example.com');
+  assert.throws(() => env.context.shareDataAccess('a@example.com', 'writer'), /Chỉ Admin/);
+
+  env.setCurrentUser('saoluucvhak@gmail.com');
+  assert.throws(() => env.context.shareDataAccess('', 'writer'), /nhập email/);
+  assert.throws(() => env.context.shareDataAccess('a@example.com', 'owner'), /không hợp lệ/);
+});
+
+test('shareDataAccess: cấp quyền trên ĐỦ CẢ 3 sheet, đúng role đã chọn', () => {
+  const env = createConfiguredGasEnv();
+  seedOwnerOnAllThree(env);
+  env.context.shareDataAccess('ketoan@example.com', 'reader');
+
+  const list = env.context.listDataSharing();
+  assert.equal(list.length, 1);
+  assert.equal(list[0].email, 'ketoan@example.com');
+  assert.deepEqual({ ...list[0].roles }, { congTy: 'reader', nhanSu: 'reader', draft: 'reader' });
+});
+
+test('shareDataAccess: gọi lại lần 2 với quyền khác phải CẬP NHẬT (không tạo permission trùng)', () => {
+  const env = createConfiguredGasEnv();
+  seedOwnerOnAllThree(env);
+  env.context.shareDataAccess('ketoan@example.com', 'reader');
+  env.context.shareDataAccess('ketoan@example.com', 'writer');
+
+  const permsCongTy = env.state.drivePermissions[env.congTyId];
+  const userPerms = permsCongTy.filter(p => p.emailAddress === 'ketoan@example.com');
+  assert.equal(userPerms.length, 1, 'không được tạo thêm permission thứ 2 cho cùng 1 email trên cùng 1 file');
+  assert.equal(userPerms[0].role, 'writer');
+
+  const list = env.context.listDataSharing();
+  assert.equal(list.length, 1, 'listDataSharing gộp theo email, vẫn chỉ 1 dòng');
+  assert.equal(list[0].roles.congTy, 'writer');
+});
+
+test('listDataSharing: không hiển thị chủ sở hữu (owner), chặn người không phải Admin', () => {
+  const env = createConfiguredGasEnv();
+  seedOwnerOnAllThree(env);
+  env.context.shareDataAccess('vien@example.com', 'commenter');
+
+  const list = env.context.listDataSharing();
+  assert.equal(list.some(x => x.email === 'saoluucvhak@gmail.com'), false, 'không được liệt kê owner');
+  assert.equal(list.length, 1);
+
+  env.context.getCurrentUserInfo();
+  env.context.saveUserPermission({ Email: 'nv1@example.com', HoTen: 'NV', VaiTro: 'Nhân viên', TrangThai: 'Hoạt động' });
+  env.setCurrentUser('nv1@example.com');
+  assert.throws(() => env.context.listDataSharing(), /Chỉ Admin/);
+});
+
+test('revokeDataAccess: xoá đúng permission trên cả 3 sheet, không đụng owner, không lỗi nếu email chưa từng được cấp', () => {
+  const env = createConfiguredGasEnv();
+  seedOwnerOnAllThree(env);
+  env.context.shareDataAccess('bidoi@example.com', 'writer');
+  assert.equal(env.context.listDataSharing().length, 1);
+
+  env.context.revokeDataAccess('bidoi@example.com');
+  assert.equal(env.context.listDataSharing().length, 0);
+  // owner vẫn còn nguyên trên cả 3 sheet
+  [env.congTyId, env.nhanSuId, env.draftId].forEach(id => {
+    const owners = env.state.drivePermissions[id].filter(p => p.role === 'owner');
+    assert.equal(owners.length, 1);
+  });
+
+  // Thu hồi 1 email chưa từng được cấp quyền -> không lỗi, không đụng gì
+  assert.doesNotThrow(() => env.context.revokeDataAccess('chua-tung-co-quyen@example.com'));
+});
+
+test('revokeDataAccess: chặn người không phải Admin', () => {
+  const env = createConfiguredGasEnv();
+  seedOwnerOnAllThree(env);
+  env.context.getCurrentUserInfo();
+  env.context.saveUserPermission({ Email: 'nv1@example.com', HoTen: 'NV', VaiTro: 'Nhân viên', TrangThai: 'Hoạt động' });
+  env.setCurrentUser('nv1@example.com');
+  assert.throws(() => env.context.revokeDataAccess('ai-do@example.com'), /Chỉ Admin/);
+});
+
+test('listAllPermissions_/findPermissionByEmail_: tự đi hết các trang, không bỏ sót permission ở trang sau', () => {
+  const env = createConfiguredGasEnv();
+  seedOwnerOnAllThree(env);
+  // Buộc Drive giả trả về đúng 1 permission mỗi trang -> email "ketoan" (được chia sẻ đầu tiên,
+  // owner đã seed trước đó) nằm ở trang thứ 3, KHÔNG PHẢI trang đầu.
+  env.context.shareDataAccess('ketoan@example.com', 'reader');
+  env.state.drivePageSize = 1;
+
+  // Nếu findPermissionByEmail_ chỉ đọc trang đầu (owner), nó sẽ không thấy "ketoan" -> gọi create
+  // thay vì update -> tạo permission trùng. Gọi lại lần 2 với quyền khác để phát hiện đúng bug đó.
+  env.context.shareDataAccess('ketoan@example.com', 'writer');
+  const permsCongTy = env.state.drivePermissions[env.congTyId].filter(p => p.emailAddress === 'ketoan@example.com');
+  assert.equal(permsCongTy.length, 1, 'phải tìm thấy permission ở trang sau và CẬP NHẬT, không tạo trùng');
+  assert.equal(permsCongTy[0].role, 'writer');
+
+  const list = env.context.listDataSharing();
+  assert.equal(list.length, 1, 'listDataSharing phải gộp đủ permission ở mọi trang, không chỉ trang đầu');
+});
+
+test('shareDataAccess/revokeDataAccess: 1 sheet lỗi giữa chừng vẫn áp dụng cho 2 sheet còn lại, báo lỗi rõ sheet nào hỏng', () => {
+  const env = createConfiguredGasEnv();
+  seedOwnerOnAllThree(env);
+  env.state.driveFailFileIds.add(env.draftId); // giả lập sheet "draft" luôn lỗi (VD Drive API rate-limit)
+
+  assert.throws(() => env.context.shareDataAccess('nguoi-moi@example.com', 'reader'), /draft/);
+  // congTy + nhanSu vẫn phải được áp dụng thành công dù draft lỗi (không rollback toàn bộ, không im lặng bỏ sót)
+  assert.equal(env.state.drivePermissions[env.congTyId].some(p => p.emailAddress === 'nguoi-moi@example.com'), true);
+  assert.equal(env.state.drivePermissions[env.nhanSuId].some(p => p.emailAddress === 'nguoi-moi@example.com'), true);
+  assert.equal((env.state.drivePermissions[env.draftId] || []).some(p => p.emailAddress === 'nguoi-moi@example.com'), false);
+
+  // Giả lập draft thực ra ĐÃ có quyền từ trước (VD được cấp trước khi draft bắt đầu lỗi) — để bài
+  // test revoke này thật sự chạm vào Drive.Permissions.remove trên draft (chứ không phải bỏ qua vì
+  // "chưa từng có quyền", vốn cũng không throw — đó là hành vi đúng, không phải case cần test ở đây).
+  env.seedPermission(env.draftId, { type: 'user', role: 'reader', emailAddress: 'nguoi-moi@example.com' });
+  assert.throws(() => env.context.revokeDataAccess('nguoi-moi@example.com'), /draft/);
+  assert.equal(env.state.drivePermissions[env.congTyId].some(p => p.emailAddress === 'nguoi-moi@example.com'), false);
+  assert.equal(env.state.drivePermissions[env.nhanSuId].some(p => p.emailAddress === 'nguoi-moi@example.com'), false);
+});

@@ -355,6 +355,121 @@ function uploadAttachment(base64Data, filename, mimeType) {
 }
 
 // =====================================================================
+// 1.7) CHIA SẺ / THU HỒI QUYỀN TRUY CẬP 3 SHEET DỮ LIỆU — chỉ Admin
+// Dùng Advanced Drive Service (đã bật sẵn trong appsscript.json, userSymbol "Drive") để chia sẻ/thu
+// hồi quyền TRÊN CẢ 3 SPREADSHEET NGOÀI cùng lúc (coi 3 sheet là 1 khối dữ liệu — người được cấp
+// quyền cần cả 3 mới xem/nhập liệu được qua app). Đây LÀ QUYỀN TRÊN FILE GOOGLE SHEET, khác với
+// phân quyền trong app (DM_NGUOIDUNG/getCurrentUserInfo) — 1 người có thể được chia sẻ file Sheet mà
+// chưa chắc đã có tài khoản/vai trò trong app, và ngược lại.
+// =====================================================================
+const SHAREABLE_ROLES = ['reader', 'commenter', 'writer'];
+
+function dataSpreadsheetIds_() {
+  const cfg = getConfig_();
+  if (!cfg) throw new Error('Chưa cấu hình liên kết Google Sheet. Hãy thiết lập trước.');
+  return { congTy: cfg.congTyId, nhanSu: cfg.nhanSuId, draft: cfg.draftId };
+}
+
+/** Đọc TOÀN BỘ permission của 1 file, tự đi hết các trang (Drive API v3 mặc định giới hạn số dòng
+ *  trả về mỗi lượt gọi — nếu chỉ đọc trang đầu, permission nằm ở trang sau sẽ "biến mất": khiến
+ *  findPermissionByEmail_ tưởng người đó chưa có quyền (tạo permission trùng thay vì cập nhật) và
+ *  listDataSharing bỏ sót người khỏi danh sách hiển thị. */
+function listAllPermissions_(fileId) {
+  const out = [];
+  let pageToken;
+  do {
+    const res = Drive.Permissions.list(fileId, {
+      fields: 'nextPageToken,permissions(id,emailAddress,role,type,displayName)',
+      pageToken: pageToken,
+    });
+    (res.permissions || []).forEach(function (p) { out.push(p); });
+    pageToken = res.nextPageToken;
+  } while (pageToken);
+  return out;
+}
+
+function findPermissionByEmail_(fileId, email) {
+  const emailLower = email.toLowerCase();
+  return listAllPermissions_(fileId).find(function (p) {
+    return p.type === 'user' && String(p.emailAddress || '').toLowerCase() === emailLower;
+  }) || null;
+}
+
+/** Gộp danh sách người đang được chia sẻ trên CẢ 3 sheet dữ liệu thành 1 danh sách theo email —
+ *  dùng cho màn "Chia sẻ & phân quyền dữ liệu". Bỏ qua chủ sở hữu (owner) — không hiển thị, không
+ *  cho thu hồi qua màn này. roles trả về theo từng sheet vì quyền có thể LỆCH NHAU giữa 3 sheet (ai
+ *  đó chia sẻ tay ngoài app, hoặc 1 lượt shareDataAccess/revokeDataAccess trước đó thất bại giữa
+ *  chừng ở 1 trong 3 sheet) — hiển thị rõ để Admin tự nhận ra và đồng bộ lại (client sẽ cảnh báo
+ *  "Lệch" khi 1 email không có ĐỦ CẢ 3 khoá congTy/nhanSu/draft). */
+function listDataSharing() {
+  const me = getCurrentUserInfo();
+  if (!me.canAdmin) throw new Error('Chỉ Admin được xem danh sách chia sẻ.');
+  const ids = dataSpreadsheetIds_();
+  const byEmail = {};
+  Object.keys(ids).forEach(function (key) {
+    listAllPermissions_(ids[key]).forEach(function (p) {
+      if (p.type !== 'user' || p.role === 'owner' || !p.emailAddress) return;
+      if (!byEmail[p.emailAddress]) byEmail[p.emailAddress] = { email: p.emailAddress, displayName: p.displayName || '', roles: {} };
+      byEmail[p.emailAddress].roles[key] = p.role;
+    });
+  });
+  return Object.keys(byEmail).map(function (k) { return byEmail[k]; })
+    .sort(function (a, b) { return a.email.localeCompare(b.email); });
+}
+
+/** Chạy `fn(fileId)` trên CẢ 3 sheet dữ liệu — KHÔNG dừng lại ở sheet đầu tiên lỗi (mỗi sheet là 1
+ *  file Google riêng, Drive API không có giao dịch nhiều-file để rollback) mà cố áp dụng cho đủ cả
+ *  3, rồi mới báo lỗi — để không bao giờ "im lặng" bỏ sót 1 sheet khi 1 sheet khác gặp lỗi tạm thời
+ *  (VD Drive API rate-limit): Admin sẽ thấy chính xác sheet nào lỗi và cần thử lại. */
+function runOnAllDataSheets_(ids, fn) {
+  const failures = [];
+  Object.keys(ids).forEach(function (key) {
+    try { fn(ids[key], key); } catch (e) { failures.push(key + ': ' + (e && e.message ? e.message : e)); }
+  });
+  if (failures.length) {
+    throw new Error('Đã áp dụng được ' + (Object.keys(ids).length - failures.length) + '/' +
+      Object.keys(ids).length + ' sheet — lỗi ở: ' + failures.join(' | '));
+  }
+}
+
+/** Chia sẻ CẢ 3 sheet dữ liệu cho 1 email với đúng 1 quyền (reader/commenter/writer). Nếu email đó
+ *  đã có quyền từ trước trên sheet nào thì CẬP NHẬT lại đúng quyền mới (không tạo trùng permission).
+ *  Chỉ Admin được gọi. */
+function shareDataAccess(email, role) {
+  const me = getCurrentUserInfo();
+  if (!me.canAdmin) throw new Error('Chỉ Admin được chia sẻ dữ liệu.');
+  email = String(email || '').trim();
+  if (!email) throw new Error('Vui lòng nhập email.');
+  if (SHAREABLE_ROLES.indexOf(role) === -1) throw new Error('Quyền không hợp lệ: ' + role);
+  runOnAllDataSheets_(dataSpreadsheetIds_(), function (fileId) {
+    const existing = findPermissionByEmail_(fileId, email);
+    if (existing) {
+      Drive.Permissions.update({ role: role }, fileId, existing.id);
+    } else {
+      Drive.Permissions.create({ type: 'user', role: role, emailAddress: email }, fileId, { sendNotificationEmail: false });
+    }
+  });
+  return true;
+}
+
+/** Thu hồi hoàn toàn quyền truy cập của 1 email trên CẢ 3 sheet dữ liệu. Bỏ qua (không lỗi) nếu email
+ *  đó vốn chưa có quyền trên 1 sheet nào đó — chỉ cần thu hồi ở những sheet đang thực sự có quyền.
+ *  Không đụng tới chủ sở hữu (owner) dù email trùng — Drive API cũng tự chặn xoá owner. Chỉ Admin. */
+function revokeDataAccess(email) {
+  const me = getCurrentUserInfo();
+  if (!me.canAdmin) throw new Error('Chỉ Admin được thu hồi quyền.');
+  email = String(email || '').trim();
+  if (!email) throw new Error('Vui lòng nhập email.');
+  runOnAllDataSheets_(dataSpreadsheetIds_(), function (fileId) {
+    const existing = findPermissionByEmail_(fileId, email);
+    if (existing && existing.role !== 'owner') {
+      Drive.Permissions.remove(fileId, existing.id);
+    }
+  });
+  return true;
+}
+
+// =====================================================================
 // 2) WEB APP ENTRY POINT
 // =====================================================================
 function doGet(e) {

@@ -25,6 +25,43 @@ test('tagClass: phân loại đúng màu tag theo trạng thái tiếng Việt',
 });
 
 /* =========================================================================
+   renderRolesBadge — cảnh báo "Lệch" khi 1 email không có ĐỦ CẢ 3 quyền giống nhau
+   trên congTy/nhanSu/draft (dùng ở màn "Chia sẻ & phân quyền dữ liệu")
+   ========================================================================= */
+test('renderRolesBadge: đủ cả 3 sheet cùng 1 quyền -> hiện badge xanh, đúng nhãn tiếng Việt', () => {
+  const env = createClientEnv();
+  const html = env.context.renderRolesBadge({ congTy: 'reader', nhanSu: 'reader', draft: 'reader' });
+  assert.match(html, /tag-green/);
+  assert.match(html, /Chỉ xem/);
+});
+
+test('renderRolesBadge: quyền khác nhau giữa 3 sheet -> cảnh báo "Lệch"', () => {
+  const env = createClientEnv();
+  const html = env.context.renderRolesBadge({ congTy: 'writer', nhanSu: 'reader', draft: 'reader' });
+  assert.match(html, /tag-amber/);
+  assert.match(html, /Lệch/);
+});
+
+test('renderRolesBadge: THIẾU HẲN quyền trên 1/3 sheet (dù 2 sheet còn lại cùng 1 quyền) vẫn phải cảnh báo "Lệch" — regression cho lỗi share/revoke lỗi giữa chừng', () => {
+  const env = createClientEnv();
+  // Đây đúng là trạng thái để lại bởi 1 lượt shareDataAccess bị lỗi ở sheet "draft" (xem
+  // test 'shareDataAccess/revokeDataAccess: 1 sheet lỗi giữa chừng...' ở code.test.js) — 2 sheet đã
+  // được cấp cùng 1 quyền "reader" nhưng draft thì hoàn toàn chưa có. Trước khi sửa, badge sẽ hiện
+  // NHẦM thành "Chỉ xem" (xanh, coi như đã đủ quyền) vì chỉ so sánh các giá trị quyền HIỆN CÓ mà
+  // không kiểm tra có đủ mặt cả 3 khoá congTy/nhanSu/draft hay không.
+  const html = env.context.renderRolesBadge({ congTy: 'reader', nhanSu: 'reader' });
+  assert.match(html, /tag-amber/);
+  assert.match(html, /Lệch/);
+  assert.doesNotMatch(html, /tag-green/);
+});
+
+test('renderRolesBadge: không có quyền nào -> hiện gạch ngang', () => {
+  const env = createClientEnv();
+  assert.match(env.context.renderRolesBadge({}), /tag-grey/);
+  assert.match(env.context.renderRolesBadge(undefined), /tag-grey/);
+});
+
+/* =========================================================================
    fieldDisplay / refLabelsJoined
    ========================================================================= */
 test('fieldDisplay: tra đúng nhãn cho field kiểu select tham chiếu bảng khác', () => {
