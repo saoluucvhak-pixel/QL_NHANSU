@@ -980,7 +980,7 @@ function nudgeResize(){
 function render(){
   const app = document.getElementById('app');
   if(!LOADED){
-    app.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;min-height:100vh;width:100%;color:#77756A;font-weight:600;">Đang tải dữ liệu từ Google Sheet…</div>`;
+    app.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;min-height:100vh;width:100%;color:#374151;font-weight:600;">Đang tải dữ liệu từ Google Sheet…</div>`;
     nudgeResize();
     return;
   }
@@ -1003,10 +1003,10 @@ function render(){
   }
   if(LOAD_ERROR){
     app.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;min-height:100vh;width:100%;padding:30px;">
-      <div style="max-width:520px;background:#fff;border:1px solid #F0DCB8;border-radius:12px;padding:24px;">
-        <div style="font-weight:800;color:#B4453B;margin-bottom:8px;">⚠️ Không tải được dữ liệu từ Google Sheet</div>
-        <div style="font-size:13px;color:#555;margin-bottom:12px;">${esc(LOAD_ERROR)}</div>
-        <div style="font-size:12.5px;color:#77756A;">Kiểm tra: đã Deploy Web App chưa, quyền truy cập Sheet, và đã chạy hàm <code>ensureAllSheets_</code> ít nhất 1 lần trong trình soạn thảo Apps Script chưa.</div>
+      <div style="max-width:520px;background:#fff;border:1px solid #fde68a;border-radius:12px;padding:24px;">
+        <div style="font-weight:800;color:#dc2626;margin-bottom:8px;">⚠️ Không tải được dữ liệu từ Google Sheet</div>
+        <div style="font-size:13px;color:#374151;margin-bottom:12px;">${esc(LOAD_ERROR)}</div>
+        <div style="font-size:12.5px;color:#374151;">Kiểm tra: đã Deploy Web App chưa, quyền truy cập Sheet, và đã chạy hàm <code>ensureAllSheets_</code> ít nhất 1 lần trong trình soạn thảo Apps Script chưa.</div>
       </div>
     </div>`;
     nudgeResize();
@@ -1043,7 +1043,7 @@ function renderAccessDeniedScreen(){
   const switchBtn = canSwitch ? `
       <a href="${esc(u.switchAccountUrl)}" target="_top"
          style="display:inline-flex;align-items:center;justify-content:center;gap:8px;margin-top:18px;
-                background:var(--green,#1a7f4b);color:#fff;font-weight:700;font-size:13.5px;
+                background:var(--green,#2563eb);color:#fff;font-weight:700;font-size:13.5px;
                 padding:11px 18px;border-radius:10px;text-decoration:none;">
         🔁 Đăng nhập bằng tài khoản Google khác
       </a>` : '';
@@ -1095,7 +1095,7 @@ function renderSetupScreen(){
         </div>
       </div>
       ${SETUP_GROUPS.map(g=>setupGroupFieldHtml(g, c)).join('')}
-      ${SETUP_ERROR && SETUP_ERROR!=='loading' ? `<div style="background:#F8E4E2;color:var(--red);padding:10px 14px;border-radius:8px;font-size:12.5px;margin-bottom:14px;">⚠️ ${esc(SETUP_ERROR)}</div>` : ''}
+      ${SETUP_ERROR && SETUP_ERROR!=='loading' ? `<div style="background:#fee2e2;color:var(--red);padding:10px 14px;border-radius:8px;font-size:12.5px;margin-bottom:14px;">⚠️ ${esc(SETUP_ERROR)}</div>` : ''}
       <button class="btn btn-primary" style="width:100%;justify-content:center;padding:12px;" ${loading?'disabled':''} data-action="submit-setup">
         ${loading ? 'Đang kết nối…' : '✅ Lưu & Bắt đầu'}
       </button>
@@ -1196,7 +1196,7 @@ function renderImportModal(){
           <div class="hint">Tên mỗi sheet trong file phải khớp đúng tên bảng (VD: DM_CHUCVU, DM_NHANVIEN, CT_QUATRINHLAMVIEC...) — sheet nào không khớp tên sẽ tự động bị bỏ qua. Với sheet hồ sơ nhân sự: cột <b>MaNV</b> để ghép đúng nhân viên, cột <b>SoHDLD</b> để ghép đúng hợp đồng lao động (xem file mẫu).</div>
         </div>
         ${IMPORT_STATE.preview ? `<div class="callout">${IMPORT_STATE.preview}</div>` : ''}
-        ${IMPORT_STATE.error ? `<div style="background:#F8E4E2;color:var(--red);padding:10px 14px;border-radius:8px;font-size:12.5px;margin-bottom:10px;">⚠️ ${esc(IMPORT_STATE.error)}</div>` : ''}
+        ${IMPORT_STATE.error ? `<div style="background:#fee2e2;color:var(--red);padding:10px 14px;border-radius:8px;font-size:12.5px;margin-bottom:10px;">⚠️ ${esc(IMPORT_STATE.error)}</div>` : ''}
       </div>
       <div class="modal-foot">
         <div></div>
@@ -1245,7 +1245,7 @@ function renderSidebar(){
       </div>
       <div class="nav-item ${nav.view==='pending'?'active':''}" data-action="go-pending">
         <span>📝</span><span>Chờ duyệt</span>
-        ${PENDING_COUNT>0 ? `<span style="margin-left:auto;background:var(--accent);color:#141F19;font-weight:800;font-size:11px;border-radius:20px;padding:1px 8px;">${PENDING_COUNT}</span>` : ''}
+        ${PENDING_COUNT>0 ? `<span style="margin-left:auto;background:var(--accent);color:#fff;font-weight:800;font-size:11px;border-radius:20px;padding:1px 8px;">${PENDING_COUNT}</span>` : ''}
       </div>
       ${CURRENT_USER && CURRENT_USER.canEdit ? `<div class="nav-item ${nav.view==='quickops'?'active':''}" data-action="go-quickops">
         <span>⚡</span><span>Nghiệp vụ</span>
@@ -1266,19 +1266,19 @@ function renderSidebar(){
           <input id="emp-search" type="text" placeholder="Tìm nhân viên…" value="${esc(searchTerm)}">
         </div>
       </div>
-      ${employees.length===0 ? `<div style="padding:8px 16px; font-size:12.5px; color:#5E7391;">Chưa có nhân viên.</div>` : empListHtml}
-      ${CURRENT_USER && CURRENT_USER.canEdit ? `<div class="nav-item" data-action="add-employee" style="color:#7FD3C6; font-weight:700;">
+      ${employees.length===0 ? `<div style="padding:8px 16px; font-size:12.5px; color:#8b98ab;">Chưa có nhân viên.</div>` : empListHtml}
+      ${CURRENT_USER && CURRENT_USER.canEdit ? `<div class="nav-item" data-action="add-employee" style="color:#2563eb; font-weight:700;">
         <span>➕</span><span>Thêm nhân viên</span>
       </div>` : ''}
     </div>
     <div class="nav-group" style="border-top:1px solid rgba(255,255,255,.07); padding-top:10px;">
-      ${CURRENT_USER && CURRENT_USER.canManageUsers ? `<div class="nav-item ${nav.view==='users'?'active':''}" data-action="go-users" style="color:#8A9A90;">
+      ${CURRENT_USER && CURRENT_USER.canManageUsers ? `<div class="nav-item ${nav.view==='users'?'active':''}" data-action="go-users" style="color:#8b98ab;">
         <span>👥</span><span>Người dùng</span>
       </div>` : ''}
-      ${CURRENT_USER && CURRENT_USER.canAdmin ? `<div class="nav-item" data-action="open-system-menu" style="color:#8A9A90;">
+      ${CURRENT_USER && CURRENT_USER.canAdmin ? `<div class="nav-item" data-action="open-system-menu" style="color:#8b98ab;">
         <span>⚙️</span><span>Hệ thống</span>
       </div>` : ''}
-      ${CURRENT_USER ? `<div style="padding:10px 16px 4px; font-size:11px; color:#5A6A5D;">${esc(CURRENT_USER.hoTen||CURRENT_USER.email)} · ${esc(CURRENT_USER.role)}</div>` : ''}
+      ${CURRENT_USER ? `<div style="padding:10px 16px 4px; font-size:11px; color:#8b98ab;">${esc(CURRENT_USER.hoTen||CURRENT_USER.email)} · ${esc(CURRENT_USER.role)}</div>` : ''}
     </div>
   </div>`;
 }
@@ -1832,7 +1832,7 @@ function renderQuickOpsModal(){
           </div>
           ${matches.length===0 ? `<div class="empty-state" style="padding:24px;"><div class="msg">Không tìm thấy nhân viên khớp.</div></div>` :
             `<div style="max-height:320px; overflow-y:auto; border:1px solid var(--border); border-radius:8px;">
-              ${matches.map(e=>`<label style="display:flex; align-items:center; gap:10px; padding:10px 14px; cursor:pointer; border-bottom:1px solid #F0EEE6;">
+              ${matches.map(e=>`<label style="display:flex; align-items:center; gap:10px; padding:10px 14px; cursor:pointer; border-bottom:1px solid #e5e7eb;">
                 <input type="checkbox" data-action="quickops-toggle-employee" data-id="${e._id}" ${selected.indexOf(e._id)>-1?'checked':''} style="width:16px;height:16px;accent-color:var(--green);">
                 <div>
                   <div style="font-weight:700; font-size:13.5px;">${esc(e.TenNhanVien)}</div>
@@ -1869,7 +1869,7 @@ function renderQuickOpsModal(){
       <div class="modal-body">
         <div class="callout">👥 <b>${usable.length} nhân viên</b>: ${usable.map(p=>esc(p.emp?p.emp.TenNhanVien:'')).join(', ')}
           — <span data-action="close-quickops-pick-again" style="cursor:pointer; text-decoration:underline;">đổi lại danh sách</span></div>
-        ${skipped.length>0 ? `<div style="background:#F8E4E2;color:var(--red);padding:10px 14px;border-radius:8px;font-size:12.5px;margin-bottom:14px;">⚠️ Bỏ qua ${skipped.length} người chưa có hợp đồng lao động hiệu lực: ${skipped.map(p=>esc(p.emp?p.emp.TenNhanVien:'')).join(', ')}</div>` : ''}
+        ${skipped.length>0 ? `<div style="background:#fee2e2;color:var(--red);padding:10px 14px;border-radius:8px;font-size:12.5px;margin-bottom:14px;">⚠️ Bỏ qua ${skipped.length} người chưa có hợp đồng lao động hiệu lực: ${skipped.map(p=>esc(p.emp?p.emp.TenNhanVien:'')).join(', ')}</div>` : ''}
         <div class="hint" style="margin-bottom:10px;">Điền 1 lần — hệ thống tự tạo riêng ${usable.length} bản ghi, mỗi người 1 bản với cùng nội dung bên dưới.</div>
         <form id="quickops-form">${fieldsHtml}</form>
       </div>
@@ -2241,7 +2241,7 @@ function initLeaveCharts(){
     chartRefs.monthly = new Chart(monthCanvas, {
       type:'bar',
       data:{ labels:['T1','T2','T3','T4','T5','T6','T7','T8','T9','T10','T11','T12'],
-        datasets:[{label:'Số ngày nghỉ', data:months, backgroundColor:'#3E7057', borderRadius:4}] },
+        datasets:[{label:'Số ngày nghỉ', data:months, backgroundColor:'#2563eb', borderRadius:4}] },
       options:{ responsive:true, plugins:{legend:{display:false}}, scales:{y:{beginAtZero:true, ticks:{precision:0}}} }
     });
   }
@@ -2252,7 +2252,7 @@ function initLeaveCharts(){
     if(chartRefs.byemp) chartRefs.byemp.destroy();
     chartRefs.byemp = new Chart(empCanvas, {
       type:'bar',
-      data:{ labels:empRows.map(e=>e.name), datasets:[{label:'Số ngày nghỉ', data:empRows.map(e=>e.total), backgroundColor:'#D99A4E', borderRadius:4}] },
+      data:{ labels:empRows.map(e=>e.name), datasets:[{label:'Số ngày nghỉ', data:empRows.map(e=>e.total), backgroundColor:'#2563eb', borderRadius:4}] },
       options:{ indexAxis:'y', responsive:true, plugins:{legend:{display:false}}, scales:{x:{beginAtZero:true, ticks:{precision:0}}} }
     });
   }
@@ -2858,7 +2858,7 @@ function renderWizardModal(){
       <div class="field">
         <label>Mã nhân viên <span class="req">*</span></label>
         <input type="text" value="${esc(autoMaNV)}" data-field="MaNV" data-auto-manv="1" readonly
-          style="background:#F3F1E9;color:var(--text-mute);cursor:not-allowed;">
+          style="background:#f3f4f6;color:var(--text-mute);cursor:not-allowed;">
         <div class="hint">Tự sinh theo cấu trúc "Mã phòng ban . Mã chức vụ . Số thứ tự" ngay khi bạn chọn đủ Phòng ban + Chức vụ ở trên.</div>
       </div>`;
     const restFields = tableCfg.fields.filter(f=>!f.computed && f.key!=='MaNV')
