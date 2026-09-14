@@ -1272,6 +1272,9 @@ function renderSidebar(){
       </div>` : ''}
     </div>
     <div class="nav-group" style="border-top:1px solid rgba(255,255,255,.07); padding-top:10px;">
+      <div class="nav-item ${nav.view==='guide'?'active':''}" data-action="go-guide" style="color:#8b98ab;">
+        <span>📖</span><span>Hướng dẫn sử dụng</span>
+      </div>
       ${CURRENT_USER && CURRENT_USER.canManageUsers ? `<div class="nav-item ${nav.view==='users'?'active':''}" data-action="go-users" style="color:#8b98ab;">
         <span>👥</span><span>Người dùng</span>
       </div>` : ''}
@@ -1322,6 +1325,10 @@ function renderTopbar(){
     crumbs = [{label:'Nghiệp vụ', action:'go-quickops'}, {label:'Tổng hợp chấm công', current:true}];
     pageTitle = 'Tổng hợp chấm công';
     pageDesc = 'Xem toàn bộ bảng chấm công đã lưu — lọc theo kỳ lương, mã nhân viên, phòng ban, chức vụ.';
+  } else if(nav.view==='guide'){
+    crumbs = [{label:'Hướng dẫn sử dụng', current:true}];
+    pageTitle = 'Hướng dẫn sử dụng';
+    pageDesc = 'Tổng quan hệ thống, phân quyền, quy trình nháp - duyệt và cách xử lý các lỗi thường gặp.';
   } else if(nav.view==='employee' || nav.view==='hdld'){
     const emp = getRow('DM_NHANVIEN', nav.empId);
     crumbs = [{label:'Nhân sự', action:'go-home'}, {label: emp ? emp.TenNhanVien : '(Nhân viên)', action:'go-employee', id: nav.empId}];
@@ -1359,7 +1366,203 @@ function renderContent(){
   if(nav.view==='attendance-summary') return renderAttendanceSummaryView();
   if(nav.view==='employee') return renderEmployeeView();
   if(nav.view==='hdld') return renderHdldView();
+  if(nav.view==='guide') return renderGuide();
   return '';
+}
+
+/* ---------------- HƯỚNG DẪN SỬ DỤNG ---------------- */
+/** Nội dung tĩnh, không gọi Google Sheet/API nào — an toàn tuyệt đối, không phát sinh quyền OAuth
+ *  mới (khác tính năng chia sẻ quyền Drive đã bị gỡ vì lý do đó). Chỉ cần cập nhật tay khi tính năng
+ *  app thay đổi thật sự (không tự đồng bộ với TABLES). */
+const GUIDE_SECTIONS = [
+  { title:'1. Giới thiệu chung', body:`
+    <p>QL_NHANSU là ứng dụng web quản lý nhân sự chạy trên nền Google Apps Script, dữ liệu lưu trong <b>3 Google Sheet tách biệt</b> (không phải sheet gắn với script):</p>
+    <ul>
+      <li><b>DM_CONGTY_HAK</b> — hồ sơ công ty và toàn bộ danh mục dùng chung (chức vụ, phòng ban, lương, phụ cấp, bảo hiểm, thuế TNCN...).</li>
+      <li><b>THONGTINNHANSU_HAK</b> — danh sách nhân viên và toàn bộ hồ sơ/hợp đồng của từng người.</li>
+      <li><b>Draft_NHANSU_HAK</b> — nhật ký các bản nháp đang chờ duyệt.</li>
+    </ul>
+    <p>Ai mở link web app cũng chạy dưới đúng tài khoản Google của người đó, không phải tài khoản người tạo app.</p>` },
+
+  { title:'2. Mô hình quyền — 2 lớp tách biệt', body:`
+    <p>Điểm quan trọng nhất để tránh lỗi "không tải được dữ liệu" hoặc "chưa có quyền truy cập":</p>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Lớp quyền</th><th>Quản lý ở đâu</th><th>Tác dụng</th></tr></thead>
+      <tbody>
+        <tr><td><b>1. Quyền trên file Google Sheet</b></td><td>Nút Share/Chia sẻ gốc của Google Sheet</td>
+          <td>Có đọc/ghi được dữ liệu thô hay không. Thiếu → báo lỗi <i>"You do not have permission..."</i>.</td></tr>
+        <tr><td><b>2. Quyền trong app</b> (mục "Người dùng")</td><td>Mục "Người dùng" trong app</td>
+          <td>Vai trò (Admin/Quản lý/Nhân viên) và những gì được thấy/thao tác. Thiếu → app tự chặn, hiện màn "chưa có quyền truy cập".</td></tr>
+      </tbody>
+    </table></div>
+    <p><b>Quy tắc:</b> thêm người dùng mới phải làm đủ cả 2 bước — share cả 3 Google Sheet (Chỉnh sửa nếu cần thao tác/duyệt, Chỉ xem nếu chỉ cần xem), rồi vào app thêm họ ở mục "Người dùng" với đúng vai trò.</p>` },
+
+  { title:'3. Thiết lập lần đầu (dành cho Admin)', body:`
+    <ol>
+      <li>Mở link web app lần đầu — nếu chưa cấu hình, app hiện màn hình yêu cầu dán 3 link Google Sheet.</li>
+      <li>Dán đúng link từng sheet, bấm "Lưu &amp; Bắt đầu" — hệ thống tự mở thử cả 3 sheet để xác nhận có quyền trước khi lưu.</li>
+      <li>Bấm "Khởi tạo cấu trúc dữ liệu" — tự tạo sheet còn thiếu, nạp danh mục mẫu nếu đang trống. Không đụng dữ liệu đã có.</li>
+      <li>Email đầu tiên trùng ADMIN_EMAIL trong code sẽ tự động được cấp quyền Admin ngay lần đầu mở app (khi bảng người dùng còn trống).</li>
+    </ol>` },
+
+  { title:'4. Vai trò người dùng trong app', body:`
+    <div class="table-wrap"><table>
+      <thead><tr><th>Vai trò</th><th>Xem dữ liệu</th><th>Thêm/Sửa/Hủy</th><th>Duyệt bản nháp</th><th>Quản lý người dùng</th></tr></thead>
+      <tbody>
+        <tr><td><b>Admin</b></td><td>Toàn bộ</td><td>Có (Hồ sơ công ty ghi thẳng, còn lại qua nháp)</td><td>Có</td><td>Toàn bộ (kể cả Quản lý)</td></tr>
+        <tr><td><b>Quản lý</b></td><td>Toàn bộ</td><td>Theo cấu hình</td><td>Chỉ khi bật "Cho phép duyệt"</td><td>Chỉ thêm/sửa Nhân viên</td></tr>
+        <tr><td><b>Nhân viên</b></td><td>Toàn bộ</td><td>Chỉ khi bật "Cho phép thao tác"</td><td>Không</td><td>Không</td></tr>
+      </tbody>
+    </table></div>
+    <p>Mọi thay đổi do Nhân viên/Quản lý gửi lên đều vào <b>bản nháp</b> trước, phải được duyệt mới vào dữ liệu chính thức (xem mục 9). Riêng Hồ sơ công ty do Admin sửa thì ghi thẳng.</p>` },
+
+  { title:'5. Giao diện tổng quan', body:`
+    <ul>
+      <li><b>Thanh bên trái:</b> Tổng quan, Báo cáo, Chờ duyệt (kèm số lượng), Nghiệp vụ, danh mục, danh sách nhân viên, Người dùng, Hệ thống.</li>
+      <li><b>Trang chủ:</b> số liệu tổng quan nhanh, lối tắt các mục hay dùng.</li>
+      <li><b>Trang chi tiết nhân viên:</b> xem/sửa từng mục hồ sơ theo tab.</li>
+    </ul>` },
+
+  { title:'6. Quản lý hồ sơ nhân viên', body:`
+    <p>Thêm nhân viên mới theo 4 bước, có thể bỏ qua bước không bắt buộc:</p>
+    <ol>
+      <li><b>Thông tin cơ bản</b> (bắt buộc) — mã NV, họ tên, CCCD, ngày vào hệ thống, trạng thái.</li>
+      <li><b>Thông tin cá nhân</b> (tùy chọn)</li>
+      <li><b>Hợp đồng lao động</b> (tùy chọn)</li>
+      <li><b>Phân công phòng ban/chức vụ</b> (tùy chọn)</li>
+    </ol>
+    <p>Mã nhân viên có thể <b>tự sinh</b> theo cấu trúc "Mã phòng ban . Mã chức vụ . Số thứ tự" khi chọn đủ Phòng ban + Chức vụ.</p>
+    <p>Các mục con trực tiếp của hồ sơ nhân viên: Thông tin cá nhân · Trình độ học vấn · Nhân thân · Thông tin thanh toán · Sức khỏe · Người liên hệ khẩn cấp · Nghề nghiệp trước đây · Quá trình công tác nội bộ · <b>Hợp đồng lao động</b> (xem mục 7).</p>` },
+
+  { title:'7. Hợp đồng lao động và các mục con', body:`
+    <p>Mỗi hợp đồng lao động (HĐLĐ) có thêm các mục con riêng, mở bằng cách bấm vào 1 hợp đồng cụ thể:</p>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Mục</th><th>Nội dung</th></tr></thead>
+      <tbody>
+        <tr><td>Khám sức khỏe</td><td>Lịch sử khám sức khỏe định kỳ</td></tr>
+        <tr><td>Quyền lợi phép</td><td>Số ngày phép cấp/cộng dồn theo năm</td></tr>
+        <tr><td>Nghỉ phép</td><td>Đơn nghỉ phép, trạng thái duyệt riêng</td></tr>
+        <tr><td>Nghỉ không lương</td><td>Đơn nghỉ không lương</td></tr>
+        <tr><td>Nghỉ ốm</td><td>Đơn nghỉ ốm, giấy chứng nhận BHXH</td></tr>
+        <tr><td>Chi tiết hợp đồng</td><td>Lương, phòng ban, chức vụ, BHXH, thuế TNCN, phụ cấp, tăng ca... theo từng phụ lục</td></tr>
+        <tr><td>Nội quy / kỷ luật</td><td>Vi phạm và cách xử lý</td></tr>
+        <tr><td>Khen thưởng</td><td>Ghi nhận khen thưởng</td></tr>
+        <tr><td>Công tác</td><td>Lịch công tác</td></tr>
+        <tr><td>Nghỉ việc</td><td>Thông tin khi chấm dứt hợp đồng</td></tr>
+        <tr><td>Chấm công tăng ca</td><td>Số công tăng ca theo kỳ</td></tr>
+        <tr><td>Nghỉ lễ / Tết</td><td>Ngày nghỉ lễ áp dụng</td></tr>
+        <tr><td>Ca sản xuất</td><td>Phân ca làm việc</td></tr>
+        <tr><td>Cấp phát trang thiết bị / bảo hộ</td><td>Theo dõi cấp phát đồ bảo hộ</td></tr>
+        <tr><td>Tài liệu đính kèm</td><td>Upload file lên Google Drive (tối đa 5MB/file)</td></tr>
+        <tr><td>Chấm công</td><td>Bảng công theo kỳ</td></tr>
+      </tbody>
+    </table></div>` },
+
+  { title:'8. Danh mục dùng chung', body:`
+    <ul>
+      <li><b>Chức vụ, Phòng ban</b> — cơ cấu tổ chức.</li>
+      <li><b>Hình thức lương</b> (có "Chi tiết bổ sung" theo ngưỡng) — LTG (thời gian) / LSP (sản phẩm).</li>
+      <li><b>Phụ cấp, Tăng ca, Hỗ trợ</b> — các khoản cộng thêm và công thức tính.</li>
+      <li><b>Mức đóng bảo hiểm</b> — tỷ lệ BHXH/BHYT/BHTN/KPCĐ (doanh nghiệp và người lao động).</li>
+      <li><b>Thuế TNCN</b> (có "Bậc thuế lũy tiến") — khấu trừ vãng lai hoặc lũy tiến theo bậc.</li>
+      <li><b>Giảm trừ gia cảnh</b> — mức giảm trừ bản thân/người phụ thuộc theo thời kỳ.</li>
+      <li><b>Danh mục công</b> — các loại công dùng khi chấm công/tính lương.</li>
+      <li><b>Hồ sơ công ty</b> — chỉ 1 dòng duy nhất, chỉ Admin sửa.</li>
+    </ul>` },
+
+  { title:'9. Cơ chế Nháp → Duyệt', body:`
+    <ol>
+      <li>Người có quyền thao tác bấm Thêm/Sửa/Hủy → dữ liệu vào <b>bản nháp</b>, chưa ảnh hưởng dữ liệu chính.</li>
+      <li>Người có quyền duyệt vào mục "Chờ duyệt", bấm "Duyệt" hoặc "Từ chối".</li>
+      <li>Duyệt xong mới ghi vào bản chính; Từ chối thì bản nháp bị loại bỏ.</li>
+    </ol>
+    <p><b>Khi "Hủy" một bản ghi:</b> hệ thống không xóa vật lý — chỉ đánh dấu trạng thái "Hủy" và giữ nguyên toàn bộ dữ liệu cũ.</p>` },
+
+  { title:'10. Cơ chế lịch sử phiên bản (Hiệu lực từ / đến)', body:`
+    <p>Hầu hết các bảng (trừ Hồ sơ công ty và Người dùng) lưu <b>lịch sử đầy đủ</b>: mỗi lần Thêm/Sửa/Hủy luôn thêm 1 dòng mới, giữ nguyên mã (_id) để bảng con vẫn liên kết đúng. Mỗi dòng có:</p>
+    <ul>
+      <li><b>Hiệu lực từ ngày</b> — ngày bắt đầu áp dụng.</li>
+      <li><b>Hiệu lực đến ngày</b> — tự tính, để trống nghĩa là đang áp dụng vô thời hạn.</li>
+      <li><b>Trạng thái bản ghi</b> — Thêm mới / Sửa / Hủy.</li>
+    </ul>
+    <p>Nhờ vậy app luôn tra lại được đúng dữ liệu tại 1 thời điểm bất kỳ trong quá khứ (dùng ở báo cáo "Lịch sử nhân sự").</p>` },
+
+  { title:'11. Quản lý người dùng trong app', body:`
+    <ul>
+      <li>Thêm người dùng mới: nhập đúng email Google thật, họ tên, chọn vai trò.</li>
+      <li>Vai trò Quản lý: bật/tắt "Cho phép duyệt".</li>
+      <li>Vai trò Nhân viên: bật/tắt "Cho phép thao tác".</li>
+      <li>Khóa tài khoản: đổi Trạng thái sang "Khóa" — không đăng nhập được nữa nhưng vẫn còn trong danh sách.</li>
+    </ul>
+    <p><i>Nhắc lại: thêm ở đây chưa đủ — phải share Google Sheet cho họ theo mục 2 thì mới dùng được app.</i></p>` },
+
+  { title:'12. Báo cáo', body:`
+    <div class="table-wrap"><table>
+      <thead><tr><th>Báo cáo</th><th>Nội dung</th></tr></thead>
+      <tbody>
+        <tr><td>⏰ HĐLĐ sắp hết hạn</td><td>Hợp đồng sắp/đã hết hạn trong 90 ngày</td></tr>
+        <tr><td>👥 Tình hình nhân sự</td><td>Đang làm việc, tuyển mới, nghỉ việc trong khoảng thời gian chọn</td></tr>
+        <tr><td>🕘 Lịch sử nhân sự</td><td>Toàn bộ thay đổi của 1 nhân viên trong khoảng ngày chọn</td></tr>
+        <tr><td>🌴 Thống kê nghỉ phép/ốm</td><td>Biểu đồ theo tháng và theo từng nhân viên</td></tr>
+        <tr><td>⚠️ Vi phạm chưa xử lý</td><td>Vi phạm nội quy đang chờ xử lý</td></tr>
+        <tr><td>📅 Sắp tới</td><td>Sinh nhật và hợp đồng sắp hết hạn trong 30 ngày</td></tr>
+        <tr><td>📥 Xuất dữ liệu</td><td>Xuất từng bảng ra CSV/Excel</td></tr>
+      </tbody>
+    </table></div>` },
+
+  { title:'13. Nhập / xuất dữ liệu Excel', body:`
+    <ul>
+      <li><b>Tải file mẫu:</b> Menu hệ thống → "Tải file mẫu để nhập dữ liệu ban đầu".</li>
+      <li><b>Nhập dữ liệu ban đầu:</b> Menu hệ thống → "Tải dữ liệu ban đầu từ file Excel" — ghi thẳng vào bản chính, chỉ Admin, chỉ dùng khi khởi tạo lần đầu.</li>
+      <li><b>Xuất dữ liệu:</b> mục Báo cáo → "Xuất dữ liệu".</li>
+    </ul>` },
+
+  { title:'14. Menu hệ thống (chỉ Admin thấy đủ)', body:`
+    <ul>
+      <li><b>Khởi tạo / đồng bộ lại cấu trúc dữ liệu</b> — tạo sheet còn thiếu, nạp danh mục nếu trống.</li>
+      <li><b>Tải file mẫu / Tải dữ liệu ban đầu từ Excel</b></li>
+      <li><b>Đổi liên kết dữ liệu</b> — dùng cho công ty/bộ dữ liệu khác. Dữ liệu hiện tại không bị xóa.</li>
+      <li><b>Sửa lỗi mất số 0 đầu</b> (CCCD, SĐT...) — chỉ áp dụng dữ liệu nhập từ sau đó.</li>
+      <li><b>Xoá toàn bộ dữ liệu</b> — <b>không thể hoàn tác</b>, cần gõ đúng cụm xác nhận.</li>
+    </ul>` },
+
+  { title:'15. Xử lý sự cố thường gặp', body:`
+    <div class="table-wrap"><table>
+      <thead><tr><th>Hiện tượng</th><th>Nguyên nhân</th><th>Cách xử lý</th></tr></thead>
+      <tbody>
+        <tr><td>Màn hình trắng, console báo lỗi liên quan "authDialog"</td>
+          <td>Hộp thoại xin cấp quyền Google bị vỡ (quyền yêu cầu tăng lên)</td>
+          <td>Người có quyền vào trình soạn thảo chạy thử 1 hàm bất kỳ trong Apps Script để bật popup cấp quyền chuẩn.</td></tr>
+        <tr><td>"Exception: Invalid argument: id"</td>
+          <td>Cấu hình liên kết 3 Google Sheet sai/rỗng</td>
+          <td>Menu hệ thống → "Đổi liên kết dữ liệu" → dán lại đúng 3 link.</td></tr>
+        <tr><td>"Chưa có quyền truy cập"</td>
+          <td>Email chưa có trong mục "Người dùng", hoặc bị Khóa</td>
+          <td>Admin/Quản lý vào mục "Người dùng" thêm/mở khóa email đó.</td></tr>
+        <tr><td>"You do not have permission..."</td>
+          <td>Chưa được share quyền trên chính file Google Sheet</td>
+          <td>Share cả 3 Google Sheet cho email đó (xem mục 2).</td></tr>
+        <tr><td>Số 0 đầu bị mất khi nhập</td>
+          <td>Google Sheets tự chuyển ô thành số</td>
+          <td>Menu hệ thống → "Sửa lỗi mất số 0 đầu".</td></tr>
+      </tbody>
+    </table></div>` },
+
+  { title:'16. Lưu ý an toàn dữ liệu', body:`
+    <ul>
+      <li><b>"Xoá toàn bộ dữ liệu"</b> là <b>không thể hoàn tác</b> — luôn sao lưu trước khi dùng.</li>
+      <li><b>Không sửa tay trực tiếp</b> trên Google Sheet nếu không cần thiết — có thể phá vỡ cơ chế lịch sử phiên bản và liên kết bảng cha - con.</li>
+      <li>Cột <code>_id</code> là khóa nội bộ tự sinh — tuyệt đối không sửa tay.</li>
+      <li>Cấp/thu hồi quyền Google Sheet nên làm qua nút Share gốc của Google Sheet — app hiện <b>không có</b> chức năng chia sẻ quyền ngay trong webapp (đã thử và loại bỏ vì gây lỗi màn hình trắng cho mọi người dùng).</li>
+    </ul>` },
+];
+
+function renderGuide(){
+  return GUIDE_SECTIONS.map(s => `
+    <div class="panel" style="margin-bottom:18px;">
+      <div class="panel-head"><div class="panel-title">${esc(s.title)}</div></div>
+      <div style="padding:0 20px 20px; font-size:13px; line-height:1.6; color:var(--text);">${s.body}</div>
+    </div>`).join('');
 }
 
 /* ---------------- HOME ---------------- */
@@ -2913,6 +3116,7 @@ function bindEvents(){
     if(action==='go-home'){ nav = {view:'home'}; render(); return; }
     if(action==='go-reports'){ nav = {view:'reports', reportTab:'expiring'}; render(); return; }
     if(action==='go-pending'){ nav = {view:'pending'}; render(); return; }
+    if(action==='go-guide'){ nav = {view:'guide'}; render(); return; }
     if(action==='go-users'){
       nav = {view:'users'};
       render();
