@@ -923,6 +923,55 @@ function rejectDraft(table, draftRowId) {
   return true;
 }
 
+const DRAFT_ARCHIVE_AFTER_DAYS = 180;
+
+/** Dọn dẹp bản nháp CŨ đã xử lý xong (Đã duyệt/Từ chối, quá DRAFT_ARCHIVE_AFTER_DAYS ngày) — chuyển
+ *  sang sheet "<Bảng>_Archive" (cùng file Draft) rồi xoá khỏi sheet nháp đang hoạt động. saveDraftRow
+ *  chỉ APPEND, chưa từng có gì xoá dòng nháp cũ -> sheet nháp phình to vô hạn theo năm tháng, làm
+ *  getPendingDrafts() (đọc nguyên sheet rồi mới lọc "Chờ duyệt") càng lúc càng chậm dù số nháp đang
+ *  chờ thật sự luôn ít. Chỉ Admin được chạy; KHÔNG xoá vĩnh viễn — vẫn giữ đủ trong sheet Archive để
+ *  tra cứu lại khi cần (ai từng gửi gì, ai duyệt, lúc nào). */
+function archiveResolvedDrafts() {
+  const me = getCurrentUserInfo();
+  if (!me.canAdmin) throw new Error('Chỉ Admin được dọn dẹp bản nháp cũ.');
+  const ss = getDraftSpreadsheet_();
+  const cutoff = Utilities.formatDate(
+    new Date(Date.now() - DRAFT_ARCHIVE_AFTER_DAYS * 86400000),
+    Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
+
+  const summary = {};
+  DRAFT_TABLES.forEach(function (table) {
+    const headers = TABLES_SCHEMA[table].concat(DRAFT_META_HEADERS);
+    const sheet = getOrCreateSheetIn_(ss, table, headers);
+    const values = sheet.getDataRange().getValues();
+    const statusCol = headers.indexOf('TrangThaiDuyet');
+    const duyetCol = headers.indexOf('ThoiGianDuyet');
+
+    const toArchive = [];
+    for (let r = 1; r < values.length; r++) {
+      const row = values[r];
+      if (row.every(function (v) { return v === '' || v === null; })) continue;
+      const status = row[statusCol];
+      const thoiGianDuyet = row[duyetCol];
+      if ((status === 'Đã duyệt' || status === 'Từ chối') && thoiGianDuyet && String(thoiGianDuyet) < cutoff) {
+        toArchive.push({ rowIndex: r + 1, values: row });
+      }
+    }
+    if (toArchive.length === 0) return;
+
+    const archiveSheet = getOrCreateSheetIn_(ss, table + '_Archive', headers);
+    archiveSheet.getRange(archiveSheet.getLastRow() + 1, 1, toArchive.length, headers.length)
+      .setValues(toArchive.map(function (x) { return x.values; }));
+
+    // Xoá từ DƯỚI LÊN để không làm lệch rowIndex của các dòng chưa xử lý phía trên.
+    toArchive.sort(function (a, b) { return b.rowIndex - a.rowIndex; });
+    toArchive.forEach(function (x) { sheet.deleteRow(x.rowIndex); });
+
+    summary[table] = toArchive.length;
+  });
+  return summary;
+}
+
 /** Nạp dữ liệu ban đầu hàng loạt — chỉ Admin. Ghi thẳng vào bản chính (không qua nháp, vì đây là
  *  bước khởi tạo dữ liệu lần đầu). dataByTable = { TÊN_BẢNG: [ {cột: giá trị, ...}, ... ] }. */
 function bulkImportData(dataByTable) {

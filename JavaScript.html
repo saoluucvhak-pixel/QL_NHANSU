@@ -1063,6 +1063,10 @@ function renderSystemMenu(){
             0️⃣&nbsp;&nbsp;Sửa lỗi mất số 0 đầu (CCCD, SĐT, số tài khoản...)
           </button>
           <div class="hint" style="margin:-4px 0 0 4px;">Ép định dạng Văn bản cho các cột hay bị Sheets tự rụng số 0 đầu. Chỉ áp dụng cho các ô nhập TỪ NAY VỀ SAU — ô nào đã bị mất số 0 từ trước thì cần bạn sửa tay lại đúng số.</div>
+          <button class="btn btn-ghost" style="width:100%;justify-content:flex-start;padding:14px 16px;" data-action="menu-archive-drafts">
+            🧹&nbsp;&nbsp;Dọn dẹp bản nháp cũ đã xử lý
+          </button>
+          <div class="hint" style="margin:-4px 0 0 4px;">Chuyển các bản nháp đã Duyệt/Từ chối quá 6 tháng sang sheet lưu trữ riêng (vẫn giữ đủ để tra cứu lại) — giúp mục "Chờ duyệt" không bị chậm dần theo thời gian vì sheet nháp phình to.</div>
           <button class="btn btn-ghost" style="width:100%;justify-content:flex-start;padding:14px 16px;color:var(--red);" data-action="menu-wipe-data">
             🗑️&nbsp;&nbsp;Xoá toàn bộ dữ liệu (giữ nguyên cấu trúc)
           </button>
@@ -3158,6 +3162,17 @@ function bindEvents(){
         showToast('⏳ Đang sửa định dạng…');
         await runServer('fixLeadingZeroFormats');
         showToast('✅ Đã sửa xong định dạng. Dữ liệu cũ bị mất số 0 (nếu có) cần bạn kiểm tra và nhập lại tay.');
+      }catch(err){ showToast('⚠️ Lỗi: ' + (err.message||err)); }
+      return;
+    }
+    if(action==='menu-archive-drafts'){
+      systemMenuOpen = false;
+      if(!confirm('Chuyển các bản nháp đã Duyệt/Từ chối quá 6 tháng sang sheet lưu trữ riêng (trong cùng file Draft) — không xoá vĩnh viễn, vẫn tra cứu lại được. Tiếp tục?')) return;
+      try{
+        showToast('⏳ Đang dọn dẹp…');
+        const summary = await runServer('archiveResolvedDrafts');
+        const total = Object.values(summary).reduce((s,n)=>s+n, 0);
+        showToast(total>0 ? `✅ Đã lưu trữ ${total} bản nháp cũ.` : '✅ Không có bản nháp cũ nào cần dọn dẹp.');
       }catch(err){ showToast('⚠️ Lỗi: ' + (err.message||err)); }
       return;
     }
