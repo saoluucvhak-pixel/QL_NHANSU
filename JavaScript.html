@@ -421,21 +421,6 @@ const TABLES = {
     ],
     columns:["MaPhongBan","TuNgay","DenNgay","SoNgayNghi","TrangThaiDuyet"],
   },
-  CT_NGHIKHONGLUONG: {
-    label:"Nghỉ không lương", parent:"CT_QUATRINHLAMVIEC", level:"hdld", icon:"🚫",
-    desc:"Từng lần nghỉ không hưởng lương (khác Nghỉ phép — không trừ vào quyền lợi phép năm).",
-    fields:[
-      {key:"MaPhongBan", label:"Phòng ban", type:"select", refTable:"DM_PHONGBAN", refLabel:"TenPB", required:true},
-      {key:"TuNgay", label:"Từ ngày", type:"datetime-local", required:true, hint:"Chọn cả giờ nếu nghỉ nửa ngày."},
-      {key:"DenNgay", label:"Đến ngày", type:"datetime-local", required:true},
-      {key:"SoNgayNghi", label:"Số ngày nghỉ", type:"number", required:true},
-      {key:"LyDo", label:"Lý do", type:"textarea", required:true},
-      {key:"TrangThaiDuyet", label:"Trạng thái duyệt", type:"select", options:["Chờ duyệt","Đã duyệt","Từ chối"], required:true, tag:true},
-      {key:"NguoiDuyet", label:"Người duyệt", type:"text"},
-      {key:"GhiChu", label:"Ghi chú", type:"textarea"},
-    ],
-    columns:["MaPhongBan","TuNgay","DenNgay","SoNgayNghi","LyDo","TrangThaiDuyet"],
-  },
   CT_NGHIOM: {
     label:"Nghỉ ốm", parent:"CT_QUATRINHLAMVIEC", level:"hdld", icon:"🤒",
     desc:"Từng lần nghỉ ốm — đối chiếu chế độ BHXH.",
@@ -503,77 +488,6 @@ const TABLES = {
     ],
     columns:["Ngay","HinhThucKhenThuong","LyDo","GiaTri"],
   },
-  CT_CONGTAC: {
-    label:"Công tác", parent:"CT_QUATRINHLAMVIEC", level:"hdld", icon:"🧳",
-    desc:"Từng đợt đi công tác — địa điểm, nội dung, thời gian.",
-    fields:[
-      {key:"TuNgay", label:"Từ ngày", type:"date", required:true},
-      {key:"DenNgay", label:"Đến ngày", type:"date", required:true},
-      {key:"DiaDiem", label:"Địa điểm", type:"text", required:true},
-      {key:"NoiDung", label:"Nội dung công tác", type:"textarea", required:true},
-      {key:"GhiChu", label:"Ghi chú", type:"textarea"},
-    ],
-    columns:["TuNgay","DenNgay","DiaDiem","NoiDung"],
-  },
-  CT_NGHIVIEC: {
-    label:"Nghỉ việc", parent:"CT_QUATRINHLAMVIEC", level:"hdld", icon:"🚪",
-    desc:"Ghi nhận chấm dứt hợp đồng lao động — Duyệt xong nhớ vào Hợp đồng lao động cập nhật lại Ngày chấm dứt HĐLĐ và trạng thái nhân viên.",
-    fields:[
-      {key:"NgayNghiViec", label:"Ngày nghỉ việc", type:"date", required:true},
-      {key:"LyDoNghiViec", label:"Lý do nghỉ việc", type:"select", options:["Tự nguyện xin nghỉ","Hết hạn hợp đồng","Công ty chấm dứt HĐLĐ","Sa thải","Khác"], required:true},
-      {key:"SoQuyetDinh", label:"Số quyết định", type:"text"},
-      {key:"GhiChu", label:"Ghi chú", type:"textarea"},
-    ],
-    columns:["NgayNghiViec","LyDoNghiViec","SoQuyetDinh"],
-  },
-  CT_TANGCA: {
-    label:"Chấm công tăng ca", parent:"CT_QUATRINHLAMVIEC", level:"hdld", icon:"⏱️",
-    desc:"Chấm công tăng ca theo TỪNG NGÀY riêng (khác với danh mục \"Tăng ca\" ở mục Danh mục — đó là nơi định nghĩa hệ số, còn đây là ghi nhận thực tế từng ngày) — mỗi ngày gắn đúng mã/hệ số tăng ca.",
-    fields:[
-      {key:"Ngay", label:"Ngày tăng ca", type:"date", required:true},
-      {key:"MaTangCa", label:"Mã tăng ca", type:"select", refTable:"DM_TANGCA", refLabel:"NoiDungTangCa", required:true},
-      {key:"SoCong", label:"Số công tăng ca", type:"number", required:true, hint:"Số công (hoặc giờ quy đổi ra công) của ngày tăng ca này."},
-      {key:"TrangThaiDuyet", label:"Trạng thái duyệt", type:"select", options:["Chờ duyệt","Đã duyệt","Từ chối"], required:true, tag:true},
-      {key:"GhiChu", label:"Ghi chú", type:"textarea"},
-    ],
-    columns:["Ngay","MaTangCa","SoCong","TrangThaiDuyet"],
-  },
-  CT_NGHILE: {
-    label:"Nghỉ lễ / Tết", parent:"CT_QUATRINHLAMVIEC", level:"hdld", icon:"🎉",
-    desc:"Ghi nhận nghỉ lễ/Tết theo từng đợt — cộng vào công ty nghỉ chung, không trừ vào phép năm.",
-    fields:[
-      {key:"MaPhongBan", label:"Phòng ban", type:"select", refTable:"DM_PHONGBAN", refLabel:"TenPB", required:true},
-      {key:"TuNgay", label:"Từ ngày", type:"datetime-local", required:true},
-      {key:"DenNgay", label:"Đến ngày", type:"datetime-local", required:true},
-      {key:"SoNgayNghi", label:"Số ngày nghỉ", type:"number", required:true},
-      {key:"TrangThaiDuyet", label:"Trạng thái duyệt", type:"select", options:["Chờ duyệt","Đã duyệt","Từ chối"], required:true, tag:true},
-      {key:"GhiChu", label:"Ghi chú", type:"textarea"},
-    ],
-    columns:["MaPhongBan","TuNgay","DenNgay","SoNgayNghi","TrangThaiDuyet"],
-  },
-  CT_CASANXUAT: {
-    label:"Ca sản xuất", parent:"CT_QUATRINHLAMVIEC", level:"hdld", icon:"🏭",
-    desc:"Phân ca làm việc sản xuất theo từng đợt — kèm phòng ban, thời gian bắt đầu/kết thúc cụ thể.",
-    fields:[
-      {key:"MaPhongBan", label:"Phòng ban", type:"select", refTable:"DM_PHONGBAN", refLabel:"TenPB", required:true},
-      {key:"TuNgay", label:"Từ ngày giờ", type:"datetime-local", required:true},
-      {key:"DenNgay", label:"Đến ngày giờ", type:"datetime-local", required:true},
-      {key:"TenCaSanXuat", label:"Tên ca sản xuất", type:"text", required:true, hint:"VD: Ca ngày, Ca đêm, Ca hành chính..."},
-      {key:"GhiChu", label:"Ghi chú", type:"textarea"},
-    ],
-    columns:["MaPhongBan","TenCaSanXuat","TuNgay","DenNgay"],
-  },
-  CT_TRANGBI: {
-    label:"Cấp phát trang thiết bị / bảo hộ", parent:"CT_QUATRINHLAMVIEC", level:"hdld", icon:"🦺",
-    desc:"Ghi nhận cấp phát đồ bảo hộ lao động, trang thiết bị làm việc.",
-    fields:[
-      {key:"NgayCap", label:"Ngày cấp", type:"date", required:true},
-      {key:"TenThietBi", label:"Tên thiết bị / trang bị", type:"text", required:true},
-      {key:"SoLuong", label:"Số lượng", type:"number", required:true},
-      {key:"GhiChu", label:"Ghi chú", type:"textarea"},
-    ],
-    columns:["NgayCap","TenThietBi","SoLuong"],
-  },
   CT_TAILIEU: {
     label:"Tài liệu đính kèm", parent:"CT_QUATRINHLAMVIEC", level:"hdld", icon:"📎",
     desc:"CCCD, giấy khám sức khỏe, bằng cấp và các giấy tờ khác — file được lưu trên Google Drive của tài khoản đang chạy hệ thống.",
@@ -585,26 +499,6 @@ const TABLES = {
       {key:"GhiChu", label:"Ghi chú", type:"textarea"},
     ],
     columns:["LoaiTaiLieu","TenTaiLieu","File","NgayTaiLieu"],
-  },
-  CT_CHAMCONG: {
-    label:"Chấm công", parent:"CT_QUATRINHLAMVIEC", level:"hdld", icon:"🗓️",
-    desc:"Bảng chấm công tổng hợp theo tháng — mỗi cột khớp đúng 1 nhóm hình thức công trong Danh mục công (DM_CC). Nhập tay từng nhân viên mỗi tháng.",
-    fields:[
-      {key:"Thang", label:"Tháng", type:"date", required:true, hint:"Chọn 1 ngày bất kỳ trong tháng cần chấm công, VD 01/08/2026 cho tháng 8/2026."},
-      {key:"SoCongChuan", label:"Số công chuẩn", type:"number", required:true, hint:"Số ngày công chuẩn của tháng theo quy định công ty."},
-      {key:"SoCongThucTe", label:"Số công thực tế (BT)", type:"number", required:true},
-      {key:"SoCongPhep", label:"Số công nghỉ phép (PN)", type:"number"},
-      {key:"SoCongOm", label:"Số công nghỉ ốm", type:"number"},
-      {key:"SoCongLe", label:"Số công ngày lễ (CL)", type:"number"},
-      {key:"SoCongTrungChuyen", label:"Số công trung chuyển (TRCH)", type:"number"},
-      {key:"SoCongDiChuyen", label:"Số công di chuyển (DC)", type:"number"},
-      {key:"SoCongTangCa", label:"Số công tăng ca (TC)", type:"number"},
-      {key:"SoNgayCom", label:"Số ngày tính tiền cơm (CC)", type:"number"},
-      {key:"SoCongTac", label:"Số công công tác (CT)", type:"number"},
-      {key:"SoNgayNghiKhongLuong", label:"Số ngày nghỉ không lương", type:"number"},
-      {key:"GhiChu", label:"Ghi chú", type:"textarea"},
-    ],
-    columns:["Thang","SoCongChuan","SoCongThucTe","SoCongPhep","SoCongOm","SoNgayNghiKhongLuong"],
   },
 };
 
@@ -647,18 +541,6 @@ let PENDING_DRAFTS = {};   // { table: [rows...] } — chỉ các dòng "Chờ d
 let PENDING_COUNT = 0;
 let CURRENT_USER = null;   // {email, role, hoTen, canAdmin, canApprove, canEdit, canManageUsers}
 let USER_LIST = [];        // dùng cho màn "Người dùng"
-// Các bảng chọn nhanh trong menu "Nghiệp vụ" — bấm 1 loại, tìm nhân viên, hệ thống tự tìm đúng
-// hợp đồng lao động (hoặc chính nhân viên, tuỳ level của bảng) để gắn vào, không cần vào tận nơi.
-const QUICKOPS_GROUPS = [
-  { label:"🗓️ Chấm công", tables:['CT_NGHIPHEP','CT_NGHIOM','CT_NGHIKHONGLUONG','CT_NGHILE','CT_TANGCA','CT_CONGTAC','CT_CASANXUAT'] },
-  { label:"📋 Nội quy", tables:['CT_KHENTHUONG','CT_NOIQUY'] },
-  { label:"🎁 Phúc lợi", tables:['CT_KHAMSUCKHOE','CT_TRANGBI'] },
-];
-// Danh sách phẳng (dùng để tra field-level, giữ Điều chuyển công tác + Nghỉ việc ở đây — không thuộc
-// hẳn 3 nhóm trên nhưng vẫn là thao tác nhanh hữu ích).
-const QUICKOPS_TABLES = QUICKOPS_GROUPS.reduce((a,g)=>a.concat(g.tables), []).concat(['CT_QUATRINHCONGTAC','CT_NGHIVIEC']);
-let quickOpsState = null; // {table, empId, hdldId} hoặc null
-let attendanceSummaryState = null; // {rows:[...], filters:{thang,maNV,maPhongBan,maChucVu}} hoặc null
 let userModalState = null; // {row} hoặc null
 let importModalOpen = false;
 let IMPORT_STATE = { busy:false, preview:null, error:null };
@@ -1021,7 +903,6 @@ function render(){
     ${modalState ? (modalState.wizard ? renderWizardModal() : renderModal()) : ''}
     ${userModalState ? renderUserModal() : ''}
     ${importModalOpen ? renderImportModal() : ''}
-    ${quickOpsState ? renderQuickOpsModal() : ''}
     ${systemMenuOpen ? renderSystemMenu() : ''}
     ${toastMsg ? `<div class="toast">${esc(toastMsg)}</div>` : ''}
   `;
@@ -1247,9 +1128,6 @@ function renderSidebar(){
         <span>📝</span><span>Chờ duyệt</span>
         ${PENDING_COUNT>0 ? `<span style="margin-left:auto;background:var(--accent);color:#fff;font-weight:800;font-size:11px;border-radius:20px;padding:1px 8px;">${PENDING_COUNT}</span>` : ''}
       </div>
-      ${CURRENT_USER && CURRENT_USER.canEdit ? `<div class="nav-item ${nav.view==='quickops'?'active':''}" data-action="go-quickops">
-        <span>⚡</span><span>Nghiệp vụ</span>
-      </div>` : ''}
       <div class="nav-item ${nav.view==='danhmuc' && nav.table==='DM_CONG'?'active':''}" data-action="go-danhmuc" data-table="DM_CONG">
         <span>🏢</span><span>Hồ sơ công ty</span>
       </div>
@@ -1317,14 +1195,6 @@ function renderTopbar(){
     crumbs = [{label:'Người dùng', current:true}];
     pageTitle = 'Người dùng & phân quyền';
     pageDesc = 'Quản lý tài khoản được phép đăng nhập và mức quyền của từng người.';
-  } else if(nav.view==='quickops'){
-    crumbs = [{label:'Nghiệp vụ', current:true}];
-    pageTitle = 'Nghiệp vụ nhân sự';
-    pageDesc = 'Chọn loại nghiệp vụ → tìm nhân viên → hệ thống tự gắn vào đúng hợp đồng lao động, không cần vào tận hồ sơ.';
-  } else if(nav.view==='attendance-summary'){
-    crumbs = [{label:'Nghiệp vụ', action:'go-quickops'}, {label:'Tổng hợp chấm công', current:true}];
-    pageTitle = 'Tổng hợp chấm công';
-    pageDesc = 'Xem toàn bộ bảng chấm công đã lưu — lọc theo kỳ lương, mã nhân viên, phòng ban, chức vụ.';
   } else if(nav.view==='guide'){
     crumbs = [{label:'Hướng dẫn sử dụng', current:true}];
     pageTitle = 'Hướng dẫn sử dụng';
@@ -1362,8 +1232,6 @@ function renderContent(){
   if(nav.view==='reports') return renderReports();
   if(nav.view==='pending') return renderPendingView();
   if(nav.view==='users') return renderUsersView();
-  if(nav.view==='quickops') return renderQuickOpsView();
-  if(nav.view==='attendance-summary') return renderAttendanceSummaryView();
   if(nav.view==='employee') return renderEmployeeView();
   if(nav.view==='hdld') return renderHdldView();
   if(nav.view==='guide') return renderGuide();
@@ -1962,197 +1830,6 @@ function getCurrentHdldForEmployee(empId){
   return pool.slice().sort((a,b)=>(b.NgayVaoLam||'').localeCompare(a.NgayVaoLam||''))[0];
 }
 
-function renderQuickOpsCard(t){
-  const cfg = TABLES[t];
-  return `<div class="panel" style="padding:20px; cursor:pointer; display:flex; align-items:center; gap:14px;" data-action="open-quickops" data-table="${t}">
-    <div style="font-size:28px;">${cfg.icon}</div>
-    <div>
-      <div style="font-weight:800; font-size:14.5px; color:var(--text);">${cfg.label}</div>
-      <div style="font-size:12px; color:var(--text-mute); margin-top:2px;">${esc(cfg.desc)}</div>
-    </div>
-  </div>`;
-}
-function renderQuickOpsView(){
-  const groupsHtml = QUICKOPS_GROUPS.map(g=>`
-    <div class="nav-group-label" style="padding-left:0; margin-top:6px;">${g.label}</div>
-    <div class="stat-grid">${g.tables.map(renderQuickOpsCard).join('')}</div>
-  `).join('');
-  return `
-  ${groupsHtml}
-  <div class="nav-group-label" style="padding-left:0; margin-top:6px;">🔀 Khác</div>
-  <div class="stat-grid">${renderQuickOpsCard('CT_QUATRINHCONGTAC')}${renderQuickOpsCard('CT_NGHIVIEC')}</div>
-  <div class="panel" style="padding:20px; cursor:pointer; display:flex; align-items:center; gap:14px; margin-top:14px;" data-action="go-attendance-summary">
-    <div style="font-size:28px;">📊</div>
-    <div>
-      <div style="font-weight:800; font-size:14.5px; color:var(--text);">Tổng hợp chấm công</div>
-      <div style="font-size:12px; color:var(--text-mute); margin-top:2px;">Xem/lọc toàn bộ bảng chấm công theo kỳ lương, mã nhân viên, phòng ban, chức vụ.</div>
-    </div>
-  </div>`;
-}
-
-function renderQuickOpsModal(){
-  const st = quickOpsState;
-  const cfg = TABLES[st.table];
-  const needsHdld = cfg.level === 'hdld';
-  const selected = st.selectedIds || [];
-
-  if(!st.confirmed){
-    // Bước 1: tìm và CHỌN NHIỀU nhân viên cùng lúc (tick chọn) — lọc theo tên/mã (không dấu vẫn tìm được) + phòng ban
-    const term = stripDiacritics(st.search||'');
-    const filterPB = st.filterPB || '';
-    const matches = (DATA.DM_NHANVIEN||[])
-      .filter(e => term.length===0 || stripDiacritics(e.TenNhanVien).includes(term) || stripDiacritics(e.MaNV).includes(term))
-      .filter(e => !filterPB || getCurrentAssignmentId(e._id).maPB === filterPB)
-      .slice(0,50);
-    const pbOptions = DATA.DM_PHONGBAN || [];
-    return `<div class="overlay" data-action="close-quickops-overlay">
-      <div class="modal" style="width:520px;">
-        <div class="modal-head">
-          <div class="modal-title">${cfg.icon} ${cfg.label} — chọn nhân viên (chọn được nhiều người)</div>
-          <button class="modal-close" data-action="close-quickops">✕</button>
-        </div>
-        <div class="modal-body">
-          <div style="display:flex; gap:10px; flex-wrap:wrap;">
-            <div class="field" style="flex:1; min-width:180px;">
-              <label>Tìm nhân viên (tên hoặc mã NV — gõ không dấu cũng được)</label>
-              <input type="text" id="quickops-emp-search" value="${esc(st.search||'')}" placeholder="Gõ để lọc danh sách bên dưới…" autofocus>
-            </div>
-            <div class="field" style="min-width:180px;">
-              <label>Lọc theo phòng ban</label>
-              <select id="quickops-emp-filter-pb">
-                <option value="">— Tất cả phòng ban —</option>
-                ${pbOptions.map(p=>`<option value="${p._id}" ${filterPB===p._id?'selected':''}>${esc(p.TenPB)}</option>`).join('')}
-              </select>
-            </div>
-          </div>
-          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
-            <span style="font-size:12px; color:var(--text-mute);">Đã chọn <b>${selected.length}</b> người</span>
-            <span>
-              <button class="btn-link-text" data-action="quickops-select-all" data-visible="${matches.map(e=>e._id).join(',')}">Chọn tất cả (${matches.length})</button>
-              &nbsp;·&nbsp;
-              <button class="btn-danger-text" data-action="quickops-select-none">Bỏ chọn hết</button>
-            </span>
-          </div>
-          ${matches.length===0 ? `<div class="empty-state" style="padding:24px;"><div class="msg">Không tìm thấy nhân viên khớp.</div></div>` :
-            `<div style="max-height:320px; overflow-y:auto; border:1px solid var(--border); border-radius:8px;">
-              ${matches.map(e=>`<label style="display:flex; align-items:center; gap:10px; padding:10px 14px; cursor:pointer; border-bottom:1px solid #e5e7eb;">
-                <input type="checkbox" data-action="quickops-toggle-employee" data-id="${e._id}" ${selected.indexOf(e._id)>-1?'checked':''} style="width:16px;height:16px;accent-color:var(--green);">
-                <div>
-                  <div style="font-weight:700; font-size:13.5px;">${esc(e.TenNhanVien)}</div>
-                  <div style="font-size:11.5px; color:var(--text-mute);">${esc(e.MaNV)}</div>
-                </div>
-              </label>`).join('')}
-            </div>`}
-        </div>
-        <div class="modal-foot">
-          <button class="btn btn-ghost" data-action="close-quickops">Hủy</button>
-          <button class="btn btn-primary" data-action="quickops-confirm-employees" ${selected.length===0?'disabled':''}>Tiếp tục (${selected.length} người) →</button>
-        </div>
-      </div>
-    </div>`;
-  }
-
-  // Bước 2: đã chốt danh sách nhân viên -> xác định hợp đồng lao động hiện hành của từng người (nếu cần)
-  const picks = selected.map(empId=>{
-    const emp = getRow('DM_NHANVIEN', empId);
-    const hdld = needsHdld ? getCurrentHdldForEmployee(empId) : null;
-    return { empId, emp, hdld, ok: needsHdld ? !!hdld : true };
-  });
-  const usable = picks.filter(p=>p.ok);
-  const skipped = picks.filter(p=>!p.ok);
-  const parentIds = usable.map(p=> needsHdld ? p.hdld._id : p.empId);
-
-  const fieldsHtml = cfg.fields.filter(f=>!f.computed).map(f=> renderFieldHtml(f, '', null)).join('');
-  return `<div class="overlay" data-action="close-quickops-overlay">
-    <div class="modal">
-      <div class="modal-head">
-        <div class="modal-title">${cfg.icon} ${cfg.label} — áp dụng cho ${usable.length} người</div>
-        <button class="modal-close" data-action="close-quickops">✕</button>
-      </div>
-      <div class="modal-body">
-        <div class="callout">👥 <b>${usable.length} nhân viên</b>: ${usable.map(p=>esc(p.emp?p.emp.TenNhanVien:'')).join(', ')}
-          — <span data-action="close-quickops-pick-again" style="cursor:pointer; text-decoration:underline;">đổi lại danh sách</span></div>
-        ${skipped.length>0 ? `<div style="background:#fee2e2;color:var(--red);padding:10px 14px;border-radius:8px;font-size:12.5px;margin-bottom:14px;">⚠️ Bỏ qua ${skipped.length} người chưa có hợp đồng lao động hiệu lực: ${skipped.map(p=>esc(p.emp?p.emp.TenNhanVien:'')).join(', ')}</div>` : ''}
-        <div class="hint" style="margin-bottom:10px;">Điền 1 lần — hệ thống tự tạo riêng ${usable.length} bản ghi, mỗi người 1 bản với cùng nội dung bên dưới.</div>
-        <form id="quickops-form">${fieldsHtml}</form>
-      </div>
-      <div class="modal-foot">
-        <div style="font-size:11.5px; color:var(--text-mute); max-width:220px;">${CURRENT_USER && CURRENT_USER.canApprove ? '"Ghi hồ sơ" ghi thẳng, không sửa lại được — chỉ dùng khi chắc chắn đúng.' : ''}</div>
-        <div style="display:flex; gap:8px;">
-          <button class="btn btn-ghost" data-action="close-quickops">Hủy</button>
-          <button class="btn btn-ghost" data-action="save-quickops" data-table="${st.table}" data-parentids="${parentIds.join(',')}">📝 Lưu nghiệp vụ (${usable.length})</button>
-          ${CURRENT_USER && CURRENT_USER.canApprove ? `<button class="btn btn-primary" data-action="commit-quickops" data-table="${st.table}" data-parentids="${parentIds.join(',')}">✅ Ghi hồ sơ (${usable.length})</button>` : ''}
-
-        </div>
-      </div>
-    </div>
-  </div>`;
-}
-
-function renderAttendanceSummaryView(){
-  const st = attendanceSummaryState || {rows:null, filters:{thang:'', maNV:'', maPhongBan:'', maChucVu:''}};
-  const f = st.filters;
-  const phongBanOpts = DATA.DM_PHONGBAN || [];
-  const chucVuOpts = DATA.DM_CHUCVU || [];
-
-  let shown = st.rows || [];
-  if(f.thang) shown = shown.filter(r => String(r.thang||'').slice(0,7) === f.thang.slice(0,7));
-  if(f.maNV) shown = shown.filter(r => stripDiacritics(r.maNV).includes(stripDiacritics(f.maNV)) || stripDiacritics(r.tenNhanVien).includes(stripDiacritics(f.maNV)));
-  if(f.maPhongBan) shown = shown.filter(r => r.maPhongBan === f.maPhongBan);
-  if(f.maChucVu) shown = shown.filter(r => r.maChucVu === f.maChucVu);
-
-  return `
-  <div class="panel" style="padding:18px 20px; margin-bottom:18px;">
-    <div style="display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end;">
-      <div class="field" style="margin-bottom:0;">
-        <label>Kỳ lương (tháng)</label>
-        <input type="month" id="att-sum-thang" value="${esc(f.thang ? f.thang.slice(0,7) : '')}">
-      </div>
-      <div class="field" style="margin-bottom:0; min-width:180px;">
-        <label>Mã NV / Tên nhân viên</label>
-        <input type="text" id="att-sum-manv" value="${esc(f.maNV)}" placeholder="Gõ để lọc…">
-      </div>
-      <div class="field" style="margin-bottom:0; min-width:180px;">
-        <label>Phòng ban</label>
-        <select id="att-sum-pb">
-          <option value="">— Tất cả —</option>
-          ${phongBanOpts.map(p=>`<option value="${p._id}" ${f.maPhongBan===p._id?'selected':''}>${esc(p.TenPB)}</option>`).join('')}
-        </select>
-      </div>
-      <div class="field" style="margin-bottom:0; min-width:180px;">
-        <label>Chức vụ</label>
-        <select id="att-sum-cv">
-          <option value="">— Tất cả —</option>
-          ${chucVuOpts.map(c=>`<option value="${c._id}" ${f.maChucVu===c._id?'selected':''}>${esc(c.TenCV)}</option>`).join('')}
-        </select>
-      </div>
-    </div>
-  </div>
-  ${!st.rows ? `<div class="empty-state"><div class="icon">⏳</div><div class="msg">Đang tải dữ liệu…</div></div>` :
-    shown.length===0 ? `<div class="panel"><div class="empty-state"><div class="icon">📭</div><div class="msg">Không có dòng chấm công nào khớp bộ lọc.</div></div></div>` :
-    `<div class="panel">
-      <div class="panel-head"><div class="panel-title">Kết quả (${shown.length} dòng)</div></div>
-      <div class="table-wrap"><table>
-        <thead><tr><th>Kỳ</th><th>Nhân viên</th><th>Phòng ban</th><th>Chức vụ</th><th>Công chuẩn</th><th>Công thực tế</th><th>Phép</th><th>Ốm</th><th>Không lương</th><th>Tăng ca</th><th>Công tác</th></tr></thead>
-        <tbody>
-          ${shown.map(r=>`<tr>
-            <td>${esc(String(r.thang||'').slice(0,7))}</td>
-            <td style="font-weight:700;">${esc(r.tenNhanVien)} <span class="pk-badge">${esc(r.maNV)}</span></td>
-            <td>${esc(r.tenPhongBan||'—')}</td>
-            <td>${esc(r.tenChucVu||'—')}</td>
-            <td>${esc(r.soCongChuan)}</td>
-            <td>${esc(r.soCongThucTe)}</td>
-            <td>${esc(r.soCongPhep)}</td>
-            <td>${esc(r.soCongOm)}</td>
-            <td>${esc(r.soNgayNghiKhongLuong)}</td>
-            <td>${esc(r.soCongTangCa)}</td>
-            <td>${esc(r.soCongTac)}</td>
-          </tr>`).join('')}
-        </tbody>
-      </table></div>
-    </div>`}
-  `;
-}
 
 /* =========================================================================
    REPORTS
@@ -3125,79 +2802,6 @@ function bindEvents(){
       return;
     }
 
-    if(action==='go-quickops'){ nav = {view:'quickops'}; render(); return; }
-    if(action==='open-quickops'){ quickOpsState = {table: el.dataset.table, search:'', filterPB:'', selectedIds:[], confirmed:false}; render(); return; }
-    if(action==='close-quickops' || action==='close-quickops-overlay'){
-      if(action==='close-quickops-overlay' && e.target !== el) return;
-      quickOpsState = null; render(); return;
-    }
-    if(action==='close-quickops-pick-again'){
-      quickOpsState = {table: quickOpsState.table, search: quickOpsState.search||'', filterPB: quickOpsState.filterPB||'', selectedIds: quickOpsState.selectedIds||[], confirmed:false};
-      render(); return;
-    }
-    if(action==='quickops-toggle-employee'){
-      const id = el.dataset.id;
-      const cur = quickOpsState.selectedIds || [];
-      quickOpsState.selectedIds = cur.indexOf(id)>-1 ? cur.filter(x=>x!==id) : cur.concat([id]);
-      render(); return;
-    }
-    if(action==='quickops-select-all'){
-      const ids = (el.dataset.visible||'').split(',').filter(Boolean);
-      const cur = new Set(quickOpsState.selectedIds || []);
-      ids.forEach(id=>cur.add(id));
-      quickOpsState.selectedIds = Array.from(cur);
-      render(); return;
-    }
-    if(action==='quickops-select-none'){ quickOpsState.selectedIds = []; render(); return; }
-    if(action==='quickops-confirm-employees'){
-      if(!quickOpsState.selectedIds || quickOpsState.selectedIds.length===0){ showToast('⚠️ Chưa chọn nhân viên nào.'); return; }
-      quickOpsState.confirmed = true; render(); return;
-    }
-    if(action==='save-quickops' || action==='commit-quickops'){
-      const table = el.dataset.table, parentIds = (el.dataset.parentids||'').split(',').filter(Boolean);
-      if(parentIds.length===0){ showToast('⚠️ Không có nhân viên nào hợp lệ để lưu.'); return; }
-      const cfg = TABLES[table];
-      const form = document.getElementById('quickops-form');
-      const newRow = {}; let missing = [];
-      cfg.fields.filter(f=>!f.computed).forEach(f=>{
-        const fe = form.querySelector(`[data-field="${f.key}"]`);
-        let val = f.type==='yesno' ? fe.checked : fe.value;
-        if(f.required && (val===''||val===undefined)) missing.push(f.label);
-        newRow[f.key] = val;
-      });
-      if(missing.length){ showToast('⚠️ Vui lòng nhập: ' + missing.join(', ')); return; }
-      showToast('⏳ Đang xử lý ' + parentIds.length + ' bản ghi…');
-      let okCount = 0;
-      for(const parentId of parentIds){
-        try{
-          const row = {_id: uid(), _parentId: parentId, ...newRow};
-          if(action==='commit-quickops'){ await runServer('commitQuickOps', table, row, 'Thêm mới'); }
-          else { await runServer('saveDraftRow', table, row, 'Thêm'); }
-          okCount++;
-        }catch(err){ /* bỏ qua lỗi từng dòng, tiếp tục các dòng còn lại */ }
-      }
-      quickOpsState = null;
-      if(action==='commit-quickops'){
-        await refreshData();
-        showToast(`✅ Đã ghi thẳng ${okCount}/${parentIds.length} bản ghi vào hồ sơ.`);
-      } else {
-        await refreshPendingCount();
-        showToast(`📝 Đã gửi ${okCount}/${parentIds.length} bản ghi vào bản nháp — chờ duyệt.`);
-      }
-      render(); return;
-    }
-
-    if(action==='go-attendance-summary'){
-      nav = {view:'attendance-summary'};
-      attendanceSummaryState = {rows:null, filters:{thang:'', maNV:'', maPhongBan:'', maChucVu:''}};
-      render();
-      try{
-        const rows = await runServer('getAttendanceSummary');
-        attendanceSummaryState.rows = rows;
-      }catch(err){ showToast('⚠️ Lỗi: ' + (err.message||err)); attendanceSummaryState.rows = []; }
-      render(); return;
-    }
-
     if(action==='add-user'){ userModalState = {row:null}; render(); return; }
     if(action==='edit-user'){
       const u = USER_LIST.find(x=>x._id===el.dataset.id);
@@ -3454,28 +3058,10 @@ function bindEvents(){
       const inp = document.getElementById('emp-search');
       if(inp){ inp.focus(); inp.setSelectionRange(caret, caret); }
     }
-    if(e.target.id==='quickops-emp-search'){
-      quickOpsState.search = e.target.value;
-      const caret = e.target.selectionStart;
-      render();
-      const inp = document.getElementById('quickops-emp-search');
-      if(inp){ inp.focus(); inp.setSelectionRange(caret, caret); }
-    }
-    if(e.target.id==='att-sum-manv'){
-      attendanceSummaryState.filters.maNV = e.target.value;
-      const caret = e.target.selectionStart;
-      render();
-      const inp = document.getElementById('att-sum-manv');
-      if(inp){ inp.focus(); inp.setSelectionRange(caret, caret); }
-    }
   };
   document.body.onchange = (e)=>{
     if(e.target.id==='chk-inactive'){ showInactive = e.target.checked; render(); return; }
     if(e.target.id==='import-file-input'){ handleImportFileSelected(); return; }
-    if(e.target.id==='att-sum-thang'){ attendanceSummaryState.filters.thang = e.target.value; render(); return; }
-    if(e.target.id==='att-sum-pb'){ attendanceSummaryState.filters.maPhongBan = e.target.value; render(); return; }
-    if(e.target.id==='att-sum-cv'){ attendanceSummaryState.filters.maChucVu = e.target.value; render(); return; }
-    if(e.target.id==='quickops-emp-filter-pb'){ quickOpsState.filterPB = e.target.value; render(); return; }
     if(e.target.id==='user-role-select'){
       const fdDuyet = document.getElementById('field-choduyet');
       const fdThaoTac = document.getElementById('field-chothaotac');
