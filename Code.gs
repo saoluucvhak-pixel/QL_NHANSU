@@ -483,8 +483,12 @@ function ensureDraftSheets_() {
 
 /** Mọi cột ngày tháng trong toàn hệ thống đều có chữ "Ngay" trong tên (HieuLucTuNgay, NgaySinh,
  *  TuNgay, Ngay...) — dùng làm quy ước để tự nhận diện cột nào cần chuyển từ serial number
- *  (Sheets API trả về số ngày kể từ 1899-12-30) sang chuỗi ISO yyyy-MM-dd. */
+ *  (Sheets API trả về số ngày kể từ 1899-12-30) sang chuỗi ISO yyyy-MM-dd.
+ *  NGOẠI LỆ: các cột "SoNgay..." (SoNgayDuocCap, SoNgayCongDon, SoNgayNghi) là SỐ ĐẾM ngày
+ *  (vd 12 ngày phép), KHÔNG PHẢI ngày tháng cụ thể — nếu không loại trừ, một giá trị hợp lệ như
+ *  2 sẽ bị coi là serial ngày và hiện sai thành "1900-01-01". */
 function isDateField_(fieldName) {
+  if (/^SoNgay/.test(fieldName)) return false;
   return fieldName.indexOf('Ngay') > -1 || fieldName.indexOf('ThoiGian') > -1;
 }
 function serialToIsoDate_(serial) {
