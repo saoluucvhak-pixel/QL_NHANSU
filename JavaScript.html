@@ -2697,13 +2697,30 @@ function renderModal(){
   if(!isEdit && table==='CT_CHITIETHOPDONG' && parentId && !data.MaCongTac) data.MaCongTac = generateNextMaCongTac(parentId);
   const fieldsHtml = cfg.fields.filter(f=>!f.computed).map(f=> renderFieldHtml(f, data[f.key], row?row._id:null, data)).join('');
 
+  // Khi sửa hồ sơ nhân viên: cho điền THÊM 1 ô "Ngày nghỉ việc" — bấm Lưu sẽ tự động cập nhật
+  // luôn "Ngày chấm dứt HĐLĐ" ở hợp đồng lao động đang hoạt động, khỏi phải vào sửa 2 nơi riêng
+  // (Trạng thái nhân viên + Ngày chấm dứt HĐLĐ) rồi bị lệch nếu quên 1 trong 2.
+  let extraFieldsHtml = '';
+  if(table==='DM_NHANVIEN' && isEdit){
+    const hasActiveContract = rowsOf('CT_QUATRINHLAMVIEC', row._id).some(r=>!r.NgayChamDutHDLD);
+    const showNow = data.TrangThai==='Đã nghỉ việc';
+    extraFieldsHtml = `
+    <div class="field" id="field-ngaynghiviec" style="${showNow?'':'display:none;'}">
+      <label>Ngày nghỉ việc</label>
+      <input type="date" data-field="__NgayNghiViec">
+      <div class="hint">${hasActiveContract
+        ? 'Điền ngày này, bấm Lưu sẽ tự gửi kèm 1 bản nháp cập nhật "Ngày chấm dứt HĐLĐ" ở hợp đồng lao động đang hoạt động — không cần vào sửa hợp đồng riêng.'
+        : 'Không tìm thấy hợp đồng lao động đang hoạt động (chưa có ngày chấm dứt) của nhân viên này — hãy tự vào tab Hợp đồng lao động để cập nhật.'}</div>
+    </div>`;
+  }
+
   return `<div class="overlay" data-action="close-modal-overlay">
     <div class="modal">
       <div class="modal-head">
         <div class="modal-title">${isEdit?'Sửa':'Thêm'} ${cfg.label.toLowerCase()}</div>
         <button class="modal-close" data-action="close-modal">✕</button>
       </div>
-      <div class="modal-body"><form id="entity-form">${fieldsHtml}</form></div>
+      <div class="modal-body"><form id="entity-form">${fieldsHtml}${extraFieldsHtml}</form></div>
       <div class="modal-foot">
         <div></div>
         <div style="display:flex; gap:8px;">
@@ -3080,6 +3097,11 @@ function bindEvents(){
       if(fdThaoTac) fdThaoTac.style.display = e.target.value==='Nhân viên' ? 'block' : 'none';
       return;
     }
+    if(e.target.dataset && e.target.dataset.field==='TrangThai' && modalState && modalState.table==='DM_NHANVIEN'){
+      const fdNgayNghiViec = document.getElementById('field-ngaynghiviec');
+      if(fdNgayNghiViec) fdNgayNghiViec.style.display = e.target.value==='Đã nghỉ việc' ? 'block' : 'none';
+      return;
+    }
     if(e.target.dataset && e.target.dataset.field && e.target.type==='checkbox'){
       const span = e.target.closest('.toggle-row').querySelector('span:last-child');
       if(span) span.textContent = e.target.checked ? 'Có' : 'Không';
@@ -3152,6 +3174,14 @@ async function handleSave(table, id, parentId){
   });
   if(missing.length){ showToast('⚠️ Vui lòng nhập: ' + missing.join(', ')); return; }
 
+  // Ô "Ngày nghỉ việc" (chỉ có khi sửa DM_NHANVIEN) không phải field thật của bảng này — không đưa
+  // vào newRow, mà dùng riêng bên dưới để tự gửi thêm 1 bản nháp cập nhật hợp đồng lao động.
+  let ngayNghiViec = '';
+  if(table==='DM_NHANVIEN'){
+    const elNgayNghiViec = form.querySelector('[data-field="__NgayNghiViec"]');
+    if(elNgayNghiViec) ngayNghiViec = elNgayNghiViec.value;
+  }
+
   try{
     let row;
     if(id){
@@ -3174,9 +3204,25 @@ async function handleSave(table, id, parentId){
     }
 
     await runServer('saveDraftRow', table, row, id ? 'Sửa' : 'Thêm');
+
+    let contractSyncMsg = '';
+    if(table==='DM_NHANVIEN' && newRow.TrangThai==='Đã nghỉ việc' && ngayNghiViec){
+      const contract = rowsOf('CT_QUATRINHLAMVIEC', row._id).find(r=>!r.NgayChamDutHDLD);
+      if(contract){
+        try{
+          await runServer('saveDraftRow', 'CT_QUATRINHLAMVIEC', {...contract, NgayChamDutHDLD: ngayNghiViec}, 'Sửa');
+          contractSyncMsg = ' Đã tự gửi kèm bản nháp cập nhật Ngày chấm dứt HĐLĐ.';
+        }catch(err){
+          contractSyncMsg = ' ⚠️ Riêng việc tự cập nhật Ngày chấm dứt HĐLĐ bị lỗi (' + (err.message||err) + ') — vào tab Hợp đồng lao động để sửa tay.';
+        }
+      } else {
+        contractSyncMsg = ' Lưu ý: không tìm thấy hợp đồng đang hoạt động nên chưa tự cập nhật được Ngày chấm dứt HĐLĐ — hãy vào tab Hợp đồng lao động để sửa tay.';
+      }
+    }
+
     modalState = null;
     await refreshPendingCount();
-    showToast('📝 Đã gửi vào bản nháp — chờ duyệt để đưa vào bản chính.');
+    showToast('📝 Đã gửi vào bản nháp — chờ duyệt để đưa vào bản chính.' + contractSyncMsg);
   }catch(err){
     showToast('⚠️ Lỗi khi gửi bản nháp: ' + (err.message||err));
   }
