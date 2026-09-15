@@ -542,6 +542,7 @@ let PENDING_COUNT = 0;
 let CURRENT_USER = null;   // {email, role, hoTen, canAdmin, canApprove, canEdit, canManageUsers}
 let USER_LIST = [];        // dùng cho màn "Người dùng"
 let userModalState = null; // {row} hoặc null
+let nghiepVuState = null;  // {step:'pick-action'|'pick-employee', action, search} — màn "Nghiệp vụ" (lối tắt nhập nhanh)
 let importModalOpen = false;
 let IMPORT_STATE = { busy:false, preview:null, error:null };
 let HEADCOUNT_RANGE = { tuNgay:'', denNgay:'' };
@@ -1145,6 +1146,9 @@ function renderSidebar(){
         <span>📝</span><span>Chờ duyệt</span>
         ${PENDING_COUNT>0 ? `<span style="margin-left:auto;background:var(--accent);color:#fff;font-weight:800;font-size:11px;border-radius:20px;padding:1px 8px;">${PENDING_COUNT}</span>` : ''}
       </div>
+      ${CURRENT_USER && CURRENT_USER.canEdit ? `<div class="nav-item ${nav.view==='nghiepvu'?'active':''}" data-action="go-nghiepvu">
+        <span>⚡</span><span>Nghiệp vụ</span>
+      </div>` : ''}
       <div class="nav-item ${nav.view==='danhmuc' && nav.table==='DM_CONG'?'active':''}" data-action="go-danhmuc" data-table="DM_CONG">
         <span>🏢</span><span>Hồ sơ công ty</span>
       </div>
@@ -1216,6 +1220,10 @@ function renderTopbar(){
     crumbs = [{label:'Hướng dẫn sử dụng', current:true}];
     pageTitle = 'Hướng dẫn sử dụng';
     pageDesc = 'Tổng quan hệ thống, phân quyền, quy trình nháp - duyệt và cách xử lý các lỗi thường gặp.';
+  } else if(nav.view==='nghiepvu'){
+    crumbs = [{label:'Nghiệp vụ', current:true}];
+    pageTitle = 'Nghiệp vụ';
+    pageDesc = 'Lối tắt nhập nhanh Nghỉ việc / Nghỉ phép / Nghỉ ốm / Chuyển công tác — chọn nhân viên, hệ thống tự tìm đúng hợp đồng và ghi vào đúng bảng, không cần tự đi tìm menu.';
   } else if(nav.view==='employee' || nav.view==='hdld'){
     const emp = getRow('DM_NHANVIEN', nav.empId);
     crumbs = [{label:'Nhân sự', action:'go-home'}, {label: emp ? emp.TenNhanVien : '(Nhân viên)', action:'go-employee', id: nav.empId}];
@@ -1252,6 +1260,7 @@ function renderContent(){
   if(nav.view==='employee') return renderEmployeeView();
   if(nav.view==='hdld') return renderHdldView();
   if(nav.view==='guide') return renderGuide();
+  if(nav.view==='nghiepvu') return renderNghiepVuView();
   return '';
 }
 
@@ -1714,6 +1723,95 @@ function renderPendingView(){
       </table></div>
     </div>`;
   }).join('');
+}
+
+/* =========================================================================
+   NGHIỆP VỤ — lối tắt nhập nhanh Nghỉ việc/Nghỉ phép/Nghỉ ốm/Chuyển công tác.
+   Chỉ là lớp điều hướng: chọn nhân viên xong thì MỞ ĐÚNG modal Thêm/Sửa sẵn có của
+   bảng tương ứng (dùng lại renderModal/handleSave/saveDraftRow y hệt khi thao tác
+   thủ công) — không tự viết logic ghi dữ liệu riêng, tránh lặp lại lỗi của tính
+   năng "Nghiệp vụ" đời trước (gọi hàm server không tồn tại, nuốt lỗi âm thầm).
+   ========================================================================= */
+const NGHIEPVU_ACTIONS = [
+  {key:'nghiviec', icon:'🚪', label:'Nghỉ việc', desc:'Đổi trạng thái nhân viên + tự cập nhật Ngày chấm dứt HĐLĐ.'},
+  {key:'nghiphep', icon:'🌴', label:'Nghỉ phép', desc:'Ghi 1 lần nghỉ phép vào hợp đồng lao động đang hoạt động.'},
+  {key:'nghiom', icon:'🤒', label:'Nghỉ ốm', desc:'Ghi 1 lần nghỉ ốm vào hợp đồng lao động đang hoạt động.'},
+  {key:'chuyencongtac', icon:'🔀', label:'Chuyển công tác', desc:'Ghi 1 lần điều chuyển phòng ban/chức vụ nội bộ.'},
+];
+
+function renderNghiepVuView(){
+  if(!nghiepVuState) nghiepVuState = {step:'pick-action'};
+  if(nghiepVuState.step==='pick-employee') return renderNghiepVuEmployeePicker();
+  return `<div class="panel">
+    <div class="panel-head">
+      <div>
+        <div class="panel-title">⚡ Chọn nghiệp vụ</div>
+        <div class="panel-desc">Chọn 1 thao tác, rồi chọn nhân viên — hệ thống tự tìm đúng hợp đồng lao động đang hoạt động và mở đúng form nhập, khỏi tự đi tìm menu.</div>
+      </div>
+    </div>
+    <div class="stat-grid" style="padding:0 20px 20px;">
+      ${NGHIEPVU_ACTIONS.map(a=>`
+        <div class="stat-card" style="cursor:pointer;" data-action="nghiepvu-pick-action" data-nvaction="${a.key}">
+          <div style="font-size:26px;margin-bottom:6px;">${a.icon}</div>
+          <div style="font-weight:700;margin-bottom:4px;">${esc(a.label)}</div>
+          <div style="font-size:12px;color:var(--text-mute);">${esc(a.desc)}</div>
+        </div>`).join('')}
+    </div>
+  </div>`;
+}
+
+/** Tách riêng để #nv-emp-search có thể chỉ cập nhật MỘT MÌNH danh sách này khi gõ, khỏi phải
+ *  render() lại cả trang (mất vị trí con trỏ đang gõ) — cùng cách đã sửa cho ô tìm ở sidebar. */
+function renderNghiepVuEmpListHtml(){
+  const search = nghiepVuState.search || '';
+  const employees = (DATA.DM_NHANVIEN||[]).filter(e=>e.TrangThai!=='Đã nghỉ việc');
+  const filtered = search ? employees.filter(e => stripDiacritics(e.TenNhanVien).includes(stripDiacritics(search)) || stripDiacritics(e.MaNV).includes(stripDiacritics(search))) : employees;
+  if(filtered.length===0) return `<div class="empty-state"><div class="icon">🔎</div><div class="msg">Không tìm thấy nhân viên phù hợp.</div></div>`;
+  return filtered.slice(0,200).map(e=>`
+    <div class="nav-item" style="cursor:pointer;" data-action="nghiepvu-pick-employee" data-id="${e._id}">
+      <span class="nav-dot"></span>
+      <span>${esc(e.TenNhanVien||'(Chưa đặt tên)')}</span>
+      <span style="margin-left:auto;color:var(--text-mute);font-size:12px;">${esc(e.MaNV||'')}</span>
+    </div>`).join('');
+}
+
+function renderNghiepVuEmployeePicker(){
+  const action = NGHIEPVU_ACTIONS.find(a=>a.key===nghiepVuState.action);
+  const search = nghiepVuState.search || '';
+  return `<div class="panel">
+    <div class="panel-head">
+      <div>
+        <div class="panel-title">${action?action.icon:''} ${action?esc(action.label):''} — chọn nhân viên</div>
+        <div class="panel-desc">${action?esc(action.desc):''}</div>
+      </div>
+      <button class="btn btn-ghost btn-sm" data-action="nghiepvu-back">← Chọn lại nghiệp vụ</button>
+    </div>
+    <div style="padding:0 20px 20px;">
+      <div class="search-box" style="max-width:340px;margin-bottom:14px;">
+        <span>🔎</span>
+        <input id="nv-emp-search" type="text" placeholder="Tìm nhân viên…" value="${esc(search)}">
+      </div>
+      <div id="nv-emp-list">${renderNghiepVuEmpListHtml()}</div>
+    </div>
+  </div>`;
+}
+
+/** Chọn xong nhân viên -> mở đúng modal Thêm/Sửa sẵn có của bảng tương ứng, y hệt thao tác thủ
+ *  công (vd Hợp đồng lao động > tab Nghỉ phép > Thêm) — không viết logic ghi dữ liệu riêng. */
+function openNghiepVuModal(action, empId){
+  if(action==='nghiviec'){
+    modalState = {table:'DM_NHANVIEN', row: getRow('DM_NHANVIEN', empId)};
+  } else if(action==='chuyencongtac'){
+    modalState = {table:'CT_QUATRINHCONGTAC', parentId: empId};
+  } else if(action==='nghiphep' || action==='nghiom'){
+    const contract = rowsOf('CT_QUATRINHLAMVIEC', empId).find(r=>!r.NgayChamDutHDLD);
+    if(!contract){
+      showToast('⚠️ Nhân viên này chưa có hợp đồng lao động đang hoạt động (chưa có ngày chấm dứt) — vào tab Hợp đồng lao động để thêm/kiểm tra hợp đồng trước.');
+      return;
+    }
+    modalState = {table: action==='nghiphep' ? 'CT_NGHIPHEP' : 'CT_NGHIOM', parentId: contract._id};
+  }
+  nghiepVuState = {step:'pick-action'};
 }
 
 /* =========================================================================
@@ -2820,6 +2918,10 @@ function bindEvents(){
     if(action==='go-reports'){ nav = {view:'reports', reportTab:'expiring'}; render(); return; }
     if(action==='go-pending'){ nav = {view:'pending'}; render(); return; }
     if(action==='go-guide'){ nav = {view:'guide'}; render(); return; }
+    if(action==='go-nghiepvu'){ nav = {view:'nghiepvu'}; nghiepVuState = {step:'pick-action'}; render(); return; }
+    if(action==='nghiepvu-pick-action'){ nghiepVuState = {step:'pick-employee', action: el.dataset.nvaction, search:''}; render(); return; }
+    if(action==='nghiepvu-back'){ nghiepVuState = {step:'pick-action'}; render(); return; }
+    if(action==='nghiepvu-pick-employee'){ openNghiepVuModal(nghiepVuState.action, el.dataset.id); render(); return; }
     if(action==='go-users'){
       nav = {view:'users'};
       render();
@@ -3084,6 +3186,12 @@ function bindEvents(){
       searchTerm = e.target.value;
       const list = document.getElementById('emp-list');
       if(list) list.innerHTML = renderEmpListHtml();
+      return;
+    }
+    if(e.target.id==='nv-emp-search'){
+      nghiepVuState.search = e.target.value;
+      const list = document.getElementById('nv-emp-list');
+      if(list) list.innerHTML = renderNghiepVuEmpListHtml();
       return;
     }
   };
