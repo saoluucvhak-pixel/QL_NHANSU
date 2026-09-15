@@ -1,0 +1,32 @@
+name: Test
+
+# Chạy bộ test Node (node:test) mỗi khi có push/PR đụng tới Code.gs, JavaScript.html
+# hoặc chính bộ test — KHÔNG ảnh hưởng gì tới cách deploy thật (Apps Script chỉ đọc
+# đúng 2 file .gs/.html khi bạn dán tay vào trình soạn thảo, không biết .github/ hay
+# test/ tồn tại). Mục đích: nếu 1 lần dán/sửa code làm hỏng logic đã có, GitHub sẽ tự
+# báo đỏ ngay tại đây trước khi bạn kịp dán code sai vào Apps Script thật.
+on:
+  push:
+    paths:
+      - 'Code.gs'
+      - 'JavaScript.html'
+      - 'test/**'
+      - 'package.json'
+      - '.github/workflows/test.yml'
+  pull_request:
+    paths:
+      - 'Code.gs'
+      - 'JavaScript.html'
+      - 'test/**'
+      - 'package.json'
+      - '.github/workflows/test.yml'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: npm test
