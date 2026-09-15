@@ -563,9 +563,11 @@ async function loadAll(){
     if(!CURRENT_USER.role){
       LOADED = true; render(); return; // chưa có quyền / bị khoá / chưa được cấp tài khoản
     }
-    DATA = await runServer('getAllData');
+    // getAllData và getPendingDrafts không phụ thuộc nhau — gọi song song thay vì nối tiếp để
+    // bớt 1 vòng round-trip lên server, giúp lần tải đầu tiên của app nhanh hơn.
+    const [allData] = await Promise.all([runServer('getAllData'), refreshPendingCount()]);
+    DATA = allData;
     LOADED = true;
-    await refreshPendingCount();
   }catch(e){
     LOAD_ERROR = (e && e.message) ? e.message : String(e);
     LOADED = true;
@@ -842,7 +844,15 @@ function selfResizeAncestorFrames(){
  *  nhưng phép đo đó thường chạy ngay lúc trang vừa tải xong, TRƯỚC KHI dữ liệu thật (qua
  *  google.script.run) kịp render lên #app. Nên phải chủ động "nhắc" lại mỗi khi nội dung thực sự
  *  thay đổi, thay vì đoán một mốc thời gian cố định. */
+let _nudgeResizeTimers = [];
 function nudgeResize(){
+  // render() gọi nudgeResize() ở CUỐI mỗi lần vẽ lại (kể cả khi gõ tìm kiếm, chuyển màn hình
+  // liên tục) — nếu không hủy các lần "rung" (kick) còn đang chờ của lần gọi trước, mỗi thao
+  // tác của người dùng sẽ cộng dồn thêm 7 lần reflow ép buộc + postMessage, khiến UI giật/chậm
+  // hẳn dù dữ liệu đã tải xong từ lâu. Hủy timer cũ trước khi đặt lịch mới để chỉ giữ đúng 1
+  // đợt "rung" tương ứng với lần render() gần nhất.
+  _nudgeResizeTimers.forEach(id => clearTimeout(id));
+  _nudgeResizeTimers = [];
   const kick = () => {
     void document.body.offsetHeight;
     selfResizeAncestorFrames();
@@ -856,7 +866,7 @@ function nudgeResize(){
     }
   };
   requestAnimationFrame(kick);
-  [50, 150, 400, 900, 1800, 3000].forEach(ms => setTimeout(kick, ms));
+  _nudgeResizeTimers = [50, 150, 400, 900, 1800, 3000].map(ms => setTimeout(kick, ms));
 }
 
 function render(){
@@ -1090,15 +1100,22 @@ function renderImportModal(){
   </div>`;
 }
 
-function renderSidebar(){
+/** Tách riêng phần HTML danh sách nhân viên (lọc theo searchTerm) để có thể cập nhật MỘT MÌNH
+ *  nó khi gõ tìm kiếm, thay vì phải render() lại TOÀN BỘ app (sidebar+topbar+content+modal) mỗi
+ *  ký tự gõ — đây là nguyên nhân chính khiến việc gõ tìm nhân viên bị giật/chậm. */
+function renderEmpListHtml(){
   const employees = DATA.DM_NHANVIEN || [];
   const filteredEmp = searchTerm ? employees.filter(e => stripDiacritics(e.TenNhanVien).includes(stripDiacritics(searchTerm)) || stripDiacritics(e.MaNV).includes(stripDiacritics(searchTerm))) : employees;
-
-  let empListHtml = filteredEmp.slice(0,200).map(e => `
+  const empListHtml = filteredEmp.slice(0,200).map(e => `
     <div class="nav-item nav-emp-item ${nav.view==='employee' && nav.empId===e._id ? 'active':''}" data-action="go-employee" data-id="${e._id}">
       <span class="nav-dot"></span>
       <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(e.TenNhanVien||'(Chưa đặt tên)')}</span>
     </div>`).join('');
+  return employees.length===0 ? `<div style="padding:8px 16px; font-size:12.5px; color:#8b98ab;">Chưa có nhân viên.</div>` : empListHtml;
+}
+
+function renderSidebar(){
+  const employees = DATA.DM_NHANVIEN || [];
 
   const dmHtml = DANHMUC_TABLES.map(t => `
     <div class="nav-item ${nav.view==='danhmuc' && nav.table===t ? 'active':''}" data-action="go-danhmuc" data-table="${t}">
@@ -1144,7 +1161,7 @@ function renderSidebar(){
           <input id="emp-search" type="text" placeholder="Tìm nhân viên…" value="${esc(searchTerm)}">
         </div>
       </div>
-      ${employees.length===0 ? `<div style="padding:8px 16px; font-size:12.5px; color:#8b98ab;">Chưa có nhân viên.</div>` : empListHtml}
+      <div id="emp-list">${renderEmpListHtml()}</div>
       ${CURRENT_USER && CURRENT_USER.canEdit ? `<div class="nav-item" data-action="add-employee" style="color:#2563eb; font-weight:700;">
         <span>➕</span><span>Thêm nhân viên</span>
       </div>` : ''}
@@ -3044,11 +3061,13 @@ function bindEvents(){
 
   document.body.oninput = (e)=>{
     if(e.target.id==='emp-search'){
+      // Chỉ cập nhật riêng danh sách nhân viên (#emp-list) thay vì render() lại toàn bộ app —
+      // gõ tìm kiếm trước đây làm giật/chậm vì mỗi ký tự đều thay lại innerHTML của CẢ sidebar,
+      // topbar và content, rồi phải khôi phục lại vị trí con trỏ trong ô input.
       searchTerm = e.target.value;
-      const caret = e.target.selectionStart;
-      render();
-      const inp = document.getElementById('emp-search');
-      if(inp){ inp.focus(); inp.setSelectionRange(caret, caret); }
+      const list = document.getElementById('emp-list');
+      if(list) list.innerHTML = renderEmpListHtml();
+      return;
     }
   };
   document.body.onchange = (e)=>{
