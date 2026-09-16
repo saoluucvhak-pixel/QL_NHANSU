@@ -203,6 +203,13 @@ input:checked + .slider:before{transform:translateX(18px);}
 .print-only{display:none;}
 @media print{
   #sidebar, #topbar, .report-tabbar, .btn, .modal, .overlay, .toast, .screen-only{display:none !important;}
+  /* Toàn bộ layout app được dựng theo kiểu "khung cố định cao 100% màn hình, chỉ #content được
+     cuộn bên trong" (html/body/#app cao 100% + overflow:hidden, #content overflow-y:auto) — khi in,
+     nếu không gỡ các giới hạn chiều cao/overflow này, trình duyệt chỉ in ĐÚNG PHẦN ĐANG HIỂN THỊ
+     trong khung cuộn (như 1 tấm ảnh chụp màn hình), cắt mất mọi dòng nằm ngoài vùng đang xem — dù
+     dữ liệu thật có hàng chục/hàng trăm dòng. Phải cho toàn bộ chuỗi cha con này cao tự nhiên +
+     không cắt (overflow:visible) thì nội dung mới chảy tràn và tự ngắt sang nhiều trang khi in. */
+  html, body, #app, #main, #content{ height:auto !important; overflow:visible !important; }
   #main{margin:0 !important; width:100% !important;}
   #content{padding:0 !important;}
   .panel{border:none !important; box-shadow:none !important; padding:0 !important; page-break-inside:avoid;}
@@ -211,6 +218,9 @@ input:checked + .slider:before{transform:translateX(18px);}
      gợi ý người dùng tự chọn "Ngang" (Landscape) trong hộp thoại in của trình duyệt. */
   .labor-register-table-panel{ page-break-inside:auto !important; }
   .labor-register-table tr{ page-break-inside:avoid; }
+  /* Cùng lý do trên nhưng theo chiều NGANG: .table-wrap cho cuộn ngang trên màn hình (overflow-x:
+     auto) — nếu giữ nguyên khi in, các cột nằm ngoài bề rộng đang xem cũng bị cắt mất. */
+  .table-wrap{ overflow-x:visible !important; }
   .print-only{display:block !important;}
   body, #app{background:#fff !important;}
   table{font-size:11px;}
