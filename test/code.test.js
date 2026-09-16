@@ -464,3 +464,52 @@ test('getEmployeeHistory: Khen thưởng/Kỷ luật/Nghỉ phép lọc theo Đ�
   const khenEvent = history.events.find(e => e.table === 'CT_KHENTHUONG');
   assert.equal(khenEvent.row.HieuLucTuNgay, '2024-06-01', 'cột hiển thị phải là ngày khen thưởng thật (Ngay), không phải ngày duyệt');
 });
+
+test('buildReportExport: tạo Google Sheet mới đúng dữ liệu/gộp ô, trả về link xuất Excel/PDF từ Google Sheets', () => {
+  const env = createConfiguredGasEnv();
+  env.context.getCurrentUserInfo(); // bootstrap Admin (saoluucvhak@gmail.com)
+
+  const aoa = [
+    ['Công ty ABC'],
+    ['BÁO CÁO TEST'],
+    ['Mã NV', 'Họ tên', 'Ghi chú'],
+    ['NV001', 'Nguyễn Văn A', ''],
+    ['NV002', 'Trần Thị B', 'Tuyển mới'],
+  ];
+  const res = env.context.buildReportExport('Báo cáo test', aoa, {
+    sheetName: 'BaoCaoTest',
+    titleRowCount: 2,
+    headerRowStart: 2,
+    headerRowCount: 1,
+    merges: [{ r1: 0, c1: 0, r2: 0, c2: 2 }, { r1: 1, c1: 0, r2: 1, c2: 2 }],
+    colWidths: [80, 160, 120],
+    landscape: false,
+  });
+
+  assert.match(res.xlsxUrl, /^https:\/\/docs\.google\.com\/spreadsheets\/d\/newss1\/export\?format=xlsx$/);
+  assert.match(res.pdfUrl, /^https:\/\/docs\.google\.com\/spreadsheets\/d\/newss1\/export\?format=pdf&gid=\d+&portrait=true&size=A4/);
+  assert.match(res.sheetUrl, /^https:\/\/docs\.google\.com\/spreadsheets\/d\/newss1\/edit$/);
+
+  const ss = env.getSpreadsheet('newss1');
+  const sheet = ss.getSheetByName('BaoCaoTest');
+  assert.ok(sheet, 'phải đặt đúng tên sheet đã yêu cầu');
+  const values = sheet.getDataRange().getValues();
+  assert.deepEqual(values[2], ['Mã NV', 'Họ tên', 'Ghi chú']);
+  assert.deepEqual(values[3], ['NV001', 'Nguyễn Văn A', '']);
+  assert.deepEqual(values[4], ['NV002', 'Trần Thị B', 'Tuyển mới']);
+});
+
+test('buildReportExport: mỗi lần gọi tạo 1 spreadsheet MỚI hoàn toàn (không tái sử dụng file cũ)', () => {
+  const env = createConfiguredGasEnv();
+  env.context.getCurrentUserInfo();
+  const opts = { sheetName: 'S', titleRowCount: 0, headerRowStart: 0, headerRowCount: 1 };
+  const r1 = env.context.buildReportExport('A', [['x']], opts);
+  const r2 = env.context.buildReportExport('B', [['y']], opts);
+  assert.notEqual(r1.xlsxUrl, r2.xlsxUrl, 'link xuất Excel phải khác nhau giữa 2 lần gọi (2 file riêng biệt)');
+});
+
+test('buildReportExport: chặn tài khoản chưa được cấp quyền (chưa đăng ký trong DM_NGUOIDUNG)', () => {
+  const env = createConfiguredGasEnv();
+  env.setCurrentUser('nguoi-la@example.com'); // chưa từng đăng nhập -> chưa có trong DM_NGUOIDUNG, không phải ADMIN_EMAIL
+  assert.throws(() => env.context.buildReportExport('X', [['a']], {}), /không có quyền/);
+});

@@ -137,10 +137,17 @@ class FakeRange {
   setFontWeight() { return this; }
   setBackground() { return this; }
   setFontColor() { return this; }
+  setFontFamily() { return this; }
+  setFontSize() { return this; }
+  setHorizontalAlignment() { return this; }
+  setVerticalAlignment() { return this; }
+  setWrap() { return this; }
+  setBorder() { return this; }
+  merge() { return this; }
 }
 
 class FakeSheet {
-  constructor(name) { this.name = name; this.data = []; }
+  constructor(name, owner) { this.name = name; this.data = []; this.owner = owner || null; }
   getName() { return this.name; }
   getLastRow() {
     for (let r = this.data.length - 1; r >= 0; r--) {
@@ -167,13 +174,27 @@ class FakeSheet {
   deleteRows(start, count) { this.data.splice(start - 1, count); }
   setFrozenRows() {}
   autoResizeColumns() {}
+  setName(name) {
+    if (this.owner) {
+      delete this.owner.sheets[this.name];
+      this.owner.sheets[name] = this;
+      this.owner.order = this.owner.order.map(n => (n === this.name ? name : n));
+    }
+    this.name = name;
+    return this;
+  }
+  setColumnWidth() { return this; }
+  getSheetId() {
+    if (this._sheetId == null) { FakeSheet._idCounter = (FakeSheet._idCounter || 0) + 1; this._sheetId = FakeSheet._idCounter; }
+    return this._sheetId;
+  }
 }
 
 class FakeSpreadsheet {
   constructor(id) { this.id = id; this.sheets = {}; this.order = []; }
   getSheetByName(name) { return this.sheets[name] || null; }
   insertSheet(name) {
-    const s = new FakeSheet(name);
+    const s = new FakeSheet(name, this);
     this.sheets[name] = s; this.order.push(name);
     return s;
   }
@@ -183,6 +204,7 @@ class FakeSpreadsheet {
     this.order = this.order.filter(n => n !== sheet.getName());
   }
   getId() { return this.id; }
+  getUrl() { return 'https://docs.google.com/spreadsheets/d/' + this.id + '/edit'; }
 }
 
 function createGasEnv(opts = {}) {
@@ -197,6 +219,15 @@ function createGasEnv(opts = {}) {
     openById(id) {
       if (!state.spreadsheets[id]) state.spreadsheets[id] = new FakeSpreadsheet(id);
       return state.spreadsheets[id];
+    },
+    create(name) {
+      state.newSpreadsheetCounter = (state.newSpreadsheetCounter || 0) + 1;
+      const id = 'newss' + state.newSpreadsheetCounter;
+      const ss = new FakeSpreadsheet(id);
+      ss.name = name;
+      ss.insertSheet('Sheet1');
+      state.spreadsheets[id] = ss;
+      return ss;
     },
   };
   const PropertiesService = {

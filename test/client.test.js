@@ -244,3 +244,62 @@ test('computeLaborRegisterRows: không crash khi MaNV là kiểu Number (regress
   assert.equal(rows[0].hoTen, 'A');
   assert.equal(rows[1].hoTen, 'B');
 });
+
+/* =========================================================================
+   buildHeadcountReportAoa / buildLaborRegisterAoa — chuẩn bị AOA + cấu hình gộp ô cho
+   buildReportExport (xuất Excel/PDF "chuyên nghiệp" qua Google Sheets thật, thay cho
+   thư viện Excel phía trình duyệt hoặc in "chụp màn hình" giao diện app).
+   ========================================================================= */
+test('buildHeadcountReportAoa: AOA có đúng dòng tiêu đề (gộp hết chiều rộng bảng) + dòng cột đúng dữ liệu computeHeadcountReport', () => {
+  const env = createClientEnv();
+  env.setData({
+    DM_CONG: [{ TenCongty: 'Công ty ABC' }],
+    DM_NHANVIEN: [{ _id:'nv1', MaNV:'NV001', TenNhanVien:'Nguyễn Văn A' }],
+    CT_QUATRINHLAMVIEC: [{ _id:'hd1', _parentId:'nv1', NgayVaoLam:'2024-03-15' }],
+    CT_QUATRINHCONGTAC: [], DM_PHONGBAN: [], DM_CHUCVU: [],
+  });
+  env.setHeadcountRange({ tuNgay:'2024-01-01', denNgay:'2024-12-31' });
+
+  const cfg = env.context.buildHeadcountReportAoa();
+  assert.equal(cfg.sheetName, 'TinhHinhNhanSu');
+  assert.equal(cfg.titleRowCount, 2);
+  assert.equal(cfg.headerRowStart, 2);
+  assert.equal(cfg.headerRowCount, 1);
+  assert.equal(cfg.aoa[0][0], 'Công ty ABC');
+  assert.deepEqual(Array.from(cfg.aoa[2]), ['Mã NV','Họ tên','Phòng ban','Chức vụ','Ngày vào làm','Ngày nghỉ việc','Biến động trong kỳ']);
+  const dataRow = cfg.aoa[3];
+  assert.equal(dataRow[0], 'NV001');
+  assert.equal(dataRow[1], 'Nguyễn Văn A');
+  assert.equal(dataRow[6], 'Tuyển mới', 'phải đánh dấu Tuyển mới vì NgayVaoLam nằm trong kỳ đã chọn');
+  const lastCol = 6;
+  const merges = Array.from(cfg.merges).map(m => ({ r1:m.r1, c1:m.c1, r2:m.r2, c2:m.c2 }));
+  assert.deepEqual(merges, [
+    { r1:0, c1:0, r2:0, c2:lastCol }, { r1:1, c1:0, r2:1, c2:lastCol },
+  ]);
+});
+
+test('buildLaborRegisterAoa: đúng 24 cột, gộp ô header y hệt cấu trúc Mẫu số 03 (colspan "Tham gia bảo hiểm" + rowspan các cột còn lại)', () => {
+  const env = createClientEnv();
+  env.setData({
+    DM_CONG: [{ TenCongty: 'Công ty ABC', DiaChi: 'Đà Nẵng' }],
+    DM_NHANVIEN: [{ _id:'nv1', MaNV:'NV001', TenNhanVien:'Nguyễn Văn A' }],
+  });
+
+  const cfg = env.context.buildLaborRegisterAoa();
+  assert.equal(cfg.sheetName, 'SoQuanLyLaoDong');
+  assert.equal(cfg.landscape, true, 'bảng 24 cột phải xuất theo khổ ngang');
+  assert.equal(cfg.titleRowCount, 3);
+  assert.equal(cfg.headerRowStart, 3);
+  assert.equal(cfg.headerRowCount, 2);
+  assert.equal(cfg.colWidths.length, 24);
+  const headerRow1 = cfg.aoa[3];
+  assert.equal(headerRow1.length, 24);
+  assert.equal(headerRow1[12], 'Tham gia bảo hiểm');
+  const headerRow2 = cfg.aoa[4];
+  assert.deepEqual([headerRow2[12], headerRow2[13], headerRow2[14]], ['BHXH','BHYT','BHTN']);
+
+  const merges = Array.from(cfg.merges);
+  assert.ok(merges.some(m => m.r1===3 && m.c1===12 && m.r2===3 && m.c2===14), 'phải gộp ngang 3 cột BHXH/BHYT/BHTN ở dòng đầu của header');
+  assert.ok(merges.some(m => m.r1===3 && m.c1===0 && m.r2===4 && m.c2===0), 'cột STT (cột 0) phải gộp dọc 2 dòng header (rowspan)');
+  assert.ok(!merges.some(m => m.c1===12 && m.r2===4), 'cột BHXH (12) không được gộp dọc vì đã gộp ngang riêng ở dòng 3');
+});

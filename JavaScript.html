@@ -2056,6 +2056,28 @@ function printWithTitle(reportTitle){
   window.print();
 }
 
+/** Xuất báo cáo "chuyên nghiệp": builderFn() trả về {title, sheetName, aoa, titleRowCount,
+ *  headerRowStart, headerRowCount, merges, colWidths, landscape} — gửi lên server để tạo 1 Google
+ *  Sheet mới định dạng đẹp (buildReportExport), rồi mở link Excel (.xlsx) hoặc PDF tương ứng ở tab
+ *  mới. Thay hẳn cho việc dùng thư viện Excel phía trình duyệt hoặc in "chụp màn hình" giao diện app. */
+async function exportReportProfessional(kind, builderFn){
+  let cfg;
+  try{ cfg = builderFn(); }
+  catch(e){ showToast('⚠️ Lỗi chuẩn bị dữ liệu báo cáo: ' + (e && e.message ? e.message : e)); return; }
+  showToast('⏳ Đang tạo báo cáo, vui lòng đợi…');
+  try{
+    const res = await runServer('buildReportExport', cfg.title, cfg.aoa, {
+      sheetName: cfg.sheetName, titleRowCount: cfg.titleRowCount, headerRowStart: cfg.headerRowStart,
+      headerRowCount: cfg.headerRowCount, merges: cfg.merges, colWidths: cfg.colWidths, landscape: cfg.landscape,
+    });
+    const url = kind==='pdf' ? res.pdfUrl : res.xlsxUrl;
+    window.open(url, '_blank');
+    showToast(kind==='pdf' ? '✅ Đã tạo PDF — xem/tải ở tab vừa mở.' : '✅ Đã tạo Excel — tab vừa mở sẽ tự tải file .xlsx.');
+  }catch(e){
+    showToast('⚠️ Lỗi tạo báo cáo: ' + (e && e.message ? e.message : e));
+  }
+}
+
 function computeHeadcountReport(tuNgay, denNgay){
   const hdlds = DATA.CT_QUATRINHLAMVIEC||[];
   const byEmp = {};
@@ -2092,15 +2114,16 @@ function renderReportHeadcount(){
   return `
   <div class="panel" style="margin-bottom:18px;">
     <div class="panel-head">
-      <div><div class="panel-title">👥 Tình hình nhân sự theo kỳ</div><div class="panel-desc">Danh sách nhân viên đang làm việc trong khoảng ngày đã chọn (phòng ban/chức vụ theo thông tin mới nhất hiện có).</div></div>
+      <div><div class="panel-title">👥 Tình hình nhân sự theo kỳ</div><div class="panel-desc">Danh sách nhân viên đang làm việc trong khoảng ngày đã chọn (phòng ban/chức vụ theo thông tin mới nhất hiện có).</div>
+      <div class="hint" style="margin-top:6px;">💡 Nút Xuất Excel/PDF sẽ tạo 1 Google Sheet định dạng chuyên nghiệp (thuộc Drive của bạn) rồi mở file tương ứng ở tab mới — nếu không thấy, hãy cho phép popup cho trang này.</div></div>
     </div>
     <div style="display:flex; gap:14px; flex-wrap:wrap; padding:0 20px 16px; align-items:flex-end;">
       <div class="field" style="margin:0;"><label>Từ ngày</label><input type="date" id="hc-tu" value="${esc(HEADCOUNT_RANGE.tuNgay)}"></div>
       <div class="field" style="margin:0;"><label>Đến ngày</label><input type="date" id="hc-den" value="${esc(HEADCOUNT_RANGE.denNgay)}"></div>
       <button class="btn btn-primary" data-action="hc-filter">🔍 Lọc</button>
       <div style="flex:1"></div>
-      <button class="btn btn-ghost" data-action="hc-print">🖨️ In báo cáo</button>
-      <button class="btn btn-ghost" data-action="hc-export">📥 Xuất Excel</button>
+      <button class="btn btn-ghost" data-action="hc-print">📄 Xuất PDF chuyên nghiệp</button>
+      <button class="btn btn-ghost" data-action="hc-export">📊 Xuất Excel chuyên nghiệp</button>
     </div>
     <div class="stat-grid" style="padding:0 20px 20px;">
       <div class="stat-card"><div class="stat-num">${list.length}</div><div class="stat-label">Đang làm việc trong kỳ</div></div>
@@ -2129,18 +2152,34 @@ function renderReportHeadcount(){
   </div>`;
 }
 
-function exportHeadcountExcel(){
-  if(typeof XLSX === 'undefined'){ showToast('⚠️ Thư viện xuất Excel chưa tải xong, thử lại sau.'); return; }
+/** Chuẩn bị mảng 2 chiều (AOA) + cấu hình định dạng cho báo cáo "Tình hình nhân sự", dùng chung cho
+ *  cả xuất Excel và xuất PDF — cả 2 đều đi qua buildReportExport (tạo Google Sheet thật, style đẹp)
+ *  thay vì thư viện Excel phía trình duyệt hoặc in "chụp màn hình" giao diện app. */
+function buildHeadcountReportAoa(){
   const list = computeHeadcountReport(HEADCOUNT_RANGE.tuNgay, HEADCOUNT_RANGE.denNgay);
-  const data = list.map(x=>({
-    'Mã NV': x.emp.MaNV, 'Họ tên': x.emp.TenNhanVien, 'Phòng ban': x.phongban, 'Chức vụ': x.chucvu,
-    'Ngày vào làm': x.vaoLam||'', 'Ngày nghỉ việc': x.nghiViec||'',
-    'Tuyển mới trong kỳ': x.tuyenMoiTrongKy?'Có':'', 'Nghỉ việc trong kỳ': x.nghiTrongKy?'Có':'',
-  }));
-  const wb = XLSX.utils.book_new();
-  const ws = data.length ? XLSX.utils.json_to_sheet(data) : XLSX.utils.aoa_to_sheet([['Không có dữ liệu']]);
-  XLSX.utils.book_append_sheet(wb, ws, 'TinhHinhNhanSu');
-  XLSX.writeFile(wb, `TinhHinhNhanSu_${HEADCOUNT_RANGE.tuNgay}_${HEADCOUNT_RANGE.denNgay}.xlsx`);
+  const congTy = (DATA.DM_CONG||[])[0] || {};
+  const headers = ['Mã NV','Họ tên','Phòng ban','Chức vụ','Ngày vào làm','Ngày nghỉ việc','Biến động trong kỳ'];
+  const aoa = [
+    [congTy.TenCongty || '(TÊN DOANH NGHIỆP)'],
+    [`BÁO CÁO TÌNH HÌNH NHÂN SỰ TỪ ${HEADCOUNT_RANGE.tuNgay} ĐẾN ${HEADCOUNT_RANGE.denNgay}`],
+    headers,
+    ...list.map(x=>[
+      x.emp.MaNV, x.emp.TenNhanVien, x.phongban, x.chucvu, x.vaoLam||'', x.nghiViec||'',
+      [x.tuyenMoiTrongKy?'Tuyển mới':'', x.nghiTrongKy?'Nghỉ việc':''].filter(Boolean).join(', '),
+    ]),
+  ];
+  const lastCol = headers.length - 1;
+  return {
+    title: `Báo cáo tình hình nhân sự ${HEADCOUNT_RANGE.tuNgay} đến ${HEADCOUNT_RANGE.denNgay}`,
+    sheetName: 'TinhHinhNhanSu',
+    aoa,
+    titleRowCount: 2,
+    headerRowStart: 2,
+    headerRowCount: 1,
+    merges: [ {r1:0,c1:0,r2:0,c2:lastCol}, {r1:1,c1:0,r2:1,c2:lastCol} ],
+    colWidths: [110,180,140,140,100,100,150],
+    landscape: false,
+  };
 }
 
 /* ---------------- BÁO CÁO: LỊCH SỬ NHÂN SỰ (1 nhân viên, từ ngày - đến ngày) ---------------- */
@@ -2507,11 +2546,11 @@ function renderReportLaborRegister(){
       <div>
         <div class="panel-title">📋 Sổ quản lý lao động</div>
         <div class="panel-desc">Theo đúng cấu trúc Mẫu số 03 (Nghị định 145/2020/NĐ-CP) — tự động điền các cột đã có dữ liệu trong hệ thống. Các cột <b>Bậc trình độ kỹ năng nghề, Tham gia bảo hiểm (BHXH/BHYT/BHTN), Nâng bậc nâng lương, Số giờ làm thêm, Hưởng chế độ BHXH/BHYT/BHTN, Học nghề/đào tạo, Tai nạn lao động</b> chưa có bảng riêng để theo dõi trong app nên để trống — cần bạn tự bổ sung bằng tay.</div>
-        <div class="hint" style="margin-top:6px;">💡 Bảng có 24 cột — khi bấm "In / Xuất PDF", nhớ chọn hướng giấy <b>Ngang (Landscape)</b> trong hộp thoại in của trình duyệt để không bị cắt cột.</div>
+        <div class="hint" style="margin-top:6px;">💡 Nút Xuất Excel/PDF sẽ tạo 1 Google Sheet định dạng chuyên nghiệp theo đúng khổ ngang (Landscape) — thuộc Drive của bạn — rồi mở file tương ứng ở tab mới, không cần tự canh khổ giấy.</div>
       </div>
       <div style="display:flex; gap:8px;">
-        <button class="btn btn-ghost btn-sm" data-action="lr-print">🖨️ In / Xuất PDF</button>
-        <button class="btn btn-ghost btn-sm" data-action="lr-export-excel">📥 Xuất Excel</button>
+        <button class="btn btn-ghost btn-sm" data-action="lr-print">📄 Xuất PDF chuyên nghiệp</button>
+        <button class="btn btn-ghost btn-sm" data-action="lr-export-excel">📊 Xuất Excel chuyên nghiệp</button>
       </div>
     </div>
   </div>
@@ -2525,8 +2564,9 @@ function renderReportLaborRegister(){
   </div>`;
 }
 
-function exportLaborRegisterExcel(){
-  if(typeof XLSX === 'undefined'){ showToast('⚠️ Thư viện xuất Excel chưa tải xong, thử lại sau.'); return; }
+/** Chuẩn bị AOA + cấu hình định dạng cho "Sổ quản lý lao động" — dùng chung cho xuất Excel/PDF qua
+ *  buildReportExport (tạo Google Sheet thật, có gộp ô/viền/tô màu như mẫu gốc Mẫu số 03). */
+function buildLaborRegisterAoa(){
   const rows = computeLaborRegisterRows();
   const congTy = (DATA.DM_CONG||[])[0] || {};
   const headerRow1 = [...LABOR_REGISTER_HEADERS_BEFORE_BH, 'Tham gia bảo hiểm', '', '', ...LABOR_REGISTER_HEADERS_AFTER_BH];
@@ -2541,24 +2581,30 @@ function exportLaborRegisterExcel(){
       r.viTriLamViec, r.loaiHDLD, r.ngayBatDau, r.bhxh, r.bhyt, r.bhtn, r.luongCoBan, r.nangBac, r.soNgayNghi,
       r.soGioLamThem, r.cheDoBH, r.hocNghe, r.kyLuat, r.taiNan, r.ngayChamDut]),
   ];
-  const ws = XLSX.utils.aoa_to_sheet(aoa);
-  // Merge y hệt cấu trúc mẫu gốc: 3 dòng tiêu đề công ty/tên sổ chiếm hết 24 cột, mọi cột trừ
+  // Gộp ô y hệt cấu trúc mẫu gốc: 3 dòng tiêu đề công ty/tên sổ chiếm hết 24 cột, mọi cột trừ
   // "Tham gia bảo hiểm" gộp dọc 2 dòng tiêu đề (rowspan), riêng "Tham gia bảo hiểm" gộp ngang 3
   // cột (BHXH/BHYT/BHTN) ở dòng đầu rồi tách ra ở dòng thứ 2.
   const lastCol = headerRow1.length - 1;
   const rowspanCols = [];
   for(let c=0;c<=lastCol;c++){ if(c<12 || c>14) rowspanCols.push(c); }
-  ws['!merges'] = [
-    {s:{r:0,c:0}, e:{r:0,c:lastCol}},
-    {s:{r:1,c:0}, e:{r:1,c:lastCol}},
-    {s:{r:2,c:0}, e:{r:2,c:lastCol}},
-    {s:{r:3,c:12}, e:{r:3,c:14}},
-    ...rowspanCols.map(c=>({s:{r:3,c:c}, e:{r:4,c:c}})),
+  const merges = [
+    {r1:0,c1:0,r2:0,c2:lastCol},
+    {r1:1,c1:0,r2:1,c2:lastCol},
+    {r1:2,c1:0,r2:2,c2:lastCol},
+    {r1:3,c1:12,r2:3,c2:14},
+    ...rowspanCols.map(c=>({r1:3,c1:c,r2:4,c2:c})),
   ];
-  ws['!cols'] = headerRow1.map(()=>({wch:16}));
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, 'SoQuanLyLaoDong');
-  XLSX.writeFile(wb, `SoQuanLyLaoDong_${fmtTodayIso()}.xlsx`);
+  return {
+    title: `Sổ quản lý lao động ${fmtTodayIso()}`,
+    sheetName: 'SoQuanLyLaoDong',
+    aoa,
+    titleRowCount: 3,
+    headerRowStart: 3,
+    headerRowCount: 2,
+    merges,
+    colWidths: [50,150,60,70,80,170,110,140,110,120,100,100, 60,60,60, 110,100,90,90,130,150,150,120,150],
+    landscape: true,
+  };
 }
 
 function computeUpcomingBirthdays(){
@@ -3283,10 +3329,10 @@ function bindEvents(){
       HEADCOUNT_RANGE.denNgay = den ? den.value : HEADCOUNT_RANGE.denNgay;
       render(); return;
     }
-    if(action==='hc-print'){ printWithTitle(`Báo cáo tình hình nhân sự ${HEADCOUNT_RANGE.tuNgay} đến ${HEADCOUNT_RANGE.denNgay}`); return; }
-    if(action==='hc-export'){ exportHeadcountExcel(); return; }
-    if(action==='lr-print'){ printWithTitle(`Sổ quản lý lao động ${fmtTodayIso()}`); return; }
-    if(action==='lr-export-excel'){ exportLaborRegisterExcel(); return; }
+    if(action==='hc-print'){ exportReportProfessional('pdf', buildHeadcountReportAoa); return; }
+    if(action==='hc-export'){ exportReportProfessional('excel', buildHeadcountReportAoa); return; }
+    if(action==='lr-print'){ exportReportProfessional('pdf', buildLaborRegisterAoa); return; }
+    if(action==='lr-export-excel'){ exportReportProfessional('excel', buildLaborRegisterAoa); return; }
     if(action==='eh-filter'){
       const empEl = document.getElementById('eh-emp'), tu = document.getElementById('eh-tu'), den = document.getElementById('eh-den');
       const empId = empEl ? empEl.value : '';

@@ -67,6 +67,7 @@ function createClientEnv() {
 globalThis.__setData__ = function(d){ DATA = d; };
 globalThis.__getData__ = function(){ return DATA; };
 globalThis.__getModalState__ = function(){ return modalState; };
+globalThis.__setHeadcountRange__ = function(v){ Object.assign(HEADCOUNT_RANGE, v); };
 `;
   vm.runInContext(scriptBody + '\n' + expose, context, { filename: 'JavaScript.html' });
 
@@ -76,6 +77,7 @@ globalThis.__getModalState__ = function(){ return modalState; };
     setData(d) { context.__setData__(d); },
     getData() { return context.__getData__(); },
     getModalState() { return context.__getModalState__(); },
+    setHeadcountRange(v) { context.__setHeadcountRange__(v); },
   };
 }
 
