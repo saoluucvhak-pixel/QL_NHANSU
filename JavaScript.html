@@ -2042,6 +2042,20 @@ function renderReportExpiring(){
 function fmtTodayIso(){ return new Date().toISOString().slice(0,10); }
 function defaultYearStartIso(){ return new Date().getFullYear()+'-01-01'; }
 
+/** Trình duyệt tự chèn tiêu đề trang (đang là tên chung "Quản lý Nhân sự") + ngày giờ + URL vào
+ *  đầu/cuối mỗi trang khi in — khiến bản in trông giống ảnh chụp thao tác hơn là 1 báo cáo sạch.
+ *  Không có cách nào tắt hẳn phần này bằng CSS (người dùng phải tự bỏ chọn "Tiêu đề và chân trang"
+ *  trong mục "Cài đặt khác" của hộp thoại in) — nhưng ít nhất đổi tạm document.title thành đúng
+ *  tên báo cáo trước khi in, để nếu người dùng không tắt thì dòng tiêu đề vẫn có ý nghĩa thay vì
+ *  hiện tên chung của cả app. Tự khôi phục lại title cũ ngay sau khi hộp thoại in đóng. */
+function printWithTitle(reportTitle){
+  const originalTitle = document.title;
+  document.title = reportTitle;
+  const restore = () => { document.title = originalTitle; window.removeEventListener('afterprint', restore); };
+  window.addEventListener('afterprint', restore);
+  window.print();
+}
+
 function computeHeadcountReport(tuNgay, denNgay){
   const hdlds = DATA.CT_QUATRINHLAMVIEC||[];
   const byEmp = {};
@@ -3269,9 +3283,9 @@ function bindEvents(){
       HEADCOUNT_RANGE.denNgay = den ? den.value : HEADCOUNT_RANGE.denNgay;
       render(); return;
     }
-    if(action==='hc-print'){ window.print(); return; }
+    if(action==='hc-print'){ printWithTitle(`Báo cáo tình hình nhân sự ${HEADCOUNT_RANGE.tuNgay} đến ${HEADCOUNT_RANGE.denNgay}`); return; }
     if(action==='hc-export'){ exportHeadcountExcel(); return; }
-    if(action==='lr-print'){ window.print(); return; }
+    if(action==='lr-print'){ printWithTitle(`Sổ quản lý lao động ${fmtTodayIso()}`); return; }
     if(action==='lr-export-excel'){ exportLaborRegisterExcel(); return; }
     if(action==='eh-filter'){
       const empEl = document.getElementById('eh-emp'), tu = document.getElementById('eh-tu'), den = document.getElementById('eh-den');
@@ -3289,8 +3303,16 @@ function bindEvents(){
       EMP_HISTORY_STATE.loading = false;
       render(); return;
     }
-    if(action==='eh-print'){ window.print(); return; }
-    if(action==='emp-print'){ window.print(); return; }
+    if(action==='eh-print'){
+      const empName = EMP_HISTORY_STATE.result ? EMP_HISTORY_STATE.result.employee.TenNhanVien : '';
+      printWithTitle(`Lịch sử nhân sự ${empName} ${EMP_HISTORY_STATE.tuNgay} đến ${EMP_HISTORY_STATE.denNgay}`);
+      return;
+    }
+    if(action==='emp-print'){
+      const emp = getRow('DM_NHANVIEN', nav.empId);
+      printWithTitle(`Hồ sơ nhân sự ${emp ? emp.TenNhanVien : ''}`);
+      return;
+    }
     if(action==='eh-export'){ exportEmployeeHistoryExcel(); return; }
     if(action==='leave-emp-filter'){
       const empEl = document.getElementById('lv-emp'), yearEl = document.getElementById('lv-year');
