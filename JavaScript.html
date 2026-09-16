@@ -1595,6 +1595,31 @@ function fieldLabel(table,key){
 }
 
 /* ---------------- EMPLOYEE DETAIL VIEW ---------------- */
+/** In toàn bộ hồ sơ 1 nhân viên (mọi mục trực tiếp + hợp đồng lao động đang hoạt động, nếu có) ra
+ *  1 trang duy nhất — chỉ hiện khi in (class "print-only"), ẩn hoàn toàn lúc xem trên màn hình vì
+ *  renderEmployeeView() bình thường chỉ hiện ĐÚNG 1 tab đang chọn, không đủ để in "cả hồ sơ". */
+function renderEmployeeFullProfilePrint(empId){
+  const emp = getRow('DM_NHANVIEN', empId);
+  if(!emp) return '';
+  const activeHdld = rowsOf('CT_QUATRINHLAMVIEC', empId).find(r=>!r.NgayChamDutHDLD) || rowsOf('CT_QUATRINHLAMVIEC', empId)[0];
+  const section = (icon, label, body) => `
+    <div class="panel" style="margin-bottom:14px;">
+      <div class="panel-head"><div class="panel-title">${icon} ${esc(label)}</div></div>
+      ${body}
+    </div>`;
+  const directSections = EMPLOYEE_TABS.map(t => section(TABLES[t].icon, TABLES[t].label, renderTableView(t, empId))).join('');
+  const hdldSections = activeHdld
+    ? HDLD_TABS.map(t => section(TABLES[t].icon, `${TABLES[t].label} (HĐLĐ ${activeHdld.SoHDLD||''})`, renderTableView(t, activeHdld._id))).join('')
+    : `<div class="empty-state"><div class="msg">Chưa có hợp đồng lao động.</div></div>`;
+  return `
+  <div class="print-only">
+    <div style="font-weight:800; font-size:18px; margin-bottom:2px;">Hồ sơ nhân sự — ${esc(emp.TenNhanVien)} (${esc(emp.MaNV)})</div>
+    <div style="font-size:12px; color:var(--text-mute); margin-bottom:16px;">In ngày ${esc(fmtTodayIso())}</div>
+    ${directSections}
+    ${hdldSections}
+  </div>`;
+}
+
 function renderEmployeeView(){
   const emp = getRow('DM_NHANVIEN', nav.empId);
   if(!emp) return `<div class="empty-state"><div class="icon">🚫</div><div class="msg">Không tìm thấy nhân viên.</div></div>`;
@@ -1610,11 +1635,17 @@ function renderEmployeeView(){
         <div class="panel-title">👤 ${esc(emp.TenNhanVien)} <span class="pk-badge" style="margin-left:6px;">${esc(emp.MaNV)}</span></div>
         <div class="panel-desc">CCCD ${esc(emp.SoCCCD)} · <span class="tag ${tagClass(emp.TrangThai)}">${esc(emp.TrangThai)}</span></div>
       </div>
-      ${CURRENT_USER && CURRENT_USER.canEdit ? `<button class="btn btn-ghost btn-sm" data-action="edit-row" data-table="DM_NHANVIEN" data-id="${emp._id}">✎ Sửa hồ sơ</button>` : ''}
+      <div style="display:flex; gap:8px;">
+        <button class="btn btn-ghost btn-sm" data-action="emp-print">🖨️ In hồ sơ</button>
+        ${CURRENT_USER && CURRENT_USER.canEdit ? `<button class="btn btn-ghost btn-sm" data-action="edit-row" data-table="DM_NHANVIEN" data-id="${emp._id}">✎ Sửa hồ sơ</button>` : ''}
+      </div>
     </div>
   </div>
-  <div class="tabbar">${tabsHtml}</div>
-  ${renderTableView(tab, emp._id)}
+  <div class="screen-only">
+    <div class="tabbar">${tabsHtml}</div>
+    ${renderTableView(tab, emp._id)}
+  </div>
+  ${renderEmployeeFullProfilePrint(emp._id)}
   `;
 }
 
@@ -3092,6 +3123,7 @@ function bindEvents(){
       render(); return;
     }
     if(action==='eh-print'){ window.print(); return; }
+    if(action==='emp-print'){ window.print(); return; }
     if(action==='eh-export'){ exportEmployeeHistoryExcel(); return; }
     if(action==='leave-emp-filter'){
       const empEl = document.getElementById('lv-emp'), yearEl = document.getElementById('lv-year');

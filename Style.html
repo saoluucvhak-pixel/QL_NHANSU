@@ -194,12 +194,13 @@ input:checked + .slider:before{transform:translateX(18px);}
 
 .print-only{display:none;}
 @media print{
-  #sidebar, #topbar, .report-tabbar, .btn, .modal, .overlay, .toast{display:none !important;}
+  #sidebar, #topbar, .report-tabbar, .btn, .modal, .overlay, .toast, .screen-only{display:none !important;}
   #main{margin:0 !important; width:100% !important;}
   #content{padding:0 !important;}
-  .panel{border:none !important; box-shadow:none !important; padding:0 !important;}
+  .panel{border:none !important; box-shadow:none !important; padding:0 !important; page-break-inside:avoid;}
   .print-only{display:block !important;}
   body, #app{background:#fff !important;}
   table{font-size:11px;}
+  .actions, td.actions, .btn-link-text, .btn-danger-text{display:none !important;}
 }
 </style>
