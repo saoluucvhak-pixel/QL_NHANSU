@@ -2404,7 +2404,10 @@ const LABOR_REGISTER_HEADERS_AFTER_BH = [
 ];
 
 function computeLaborRegisterRows(){
-  const employees = (DATA.DM_NHANVIEN||[]).slice().sort((a,b)=>(a.MaNV||'').localeCompare(b.MaNV||''));
+  // MaNV thường là chuỗi (vd "02.01.8.001"), nhưng nếu công ty nhập Mã NV toàn chữ số (vd
+  // "48083006113"), Google Sheets có thể tự lưu thành kiểu Number — .localeCompare() sẽ ném lỗi
+  // nếu gọi trực tiếp trên số, nên luôn ép về String trước khi so sánh.
+  const employees = (DATA.DM_NHANVIEN||[]).slice().sort((a,b)=>String(a.MaNV||'').localeCompare(String(b.MaNV||'')));
   const currentYear = String(new Date().getFullYear());
   return employees.map((emp, idx) => {
     const canhan = latestByDate(rowsOf('CT_THONGTINCANHAN', emp._id), 'NgayCap');

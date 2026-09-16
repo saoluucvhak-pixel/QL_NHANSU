@@ -229,3 +229,18 @@ test('computeLaborRegisterRows: điền đúng các cột có dữ liệu, để
   assert.equal(r.hocNghe, '');
   assert.equal(r.taiNan, '');
 });
+
+test('computeLaborRegisterRows: không crash khi MaNV là kiểu Number (regression: Google Sheets tự lưu Mã NV toàn chữ số thành Number, .localeCompare() ném lỗi nếu không ép String trước)', () => {
+  const env = createClientEnv();
+  env.setData({
+    DM_NHANVIEN: [
+      { _id:'nv1', MaNV: 48083006113, TenNhanVien:'B' }, // MaNV kiểu Number (giống dữ liệu thật của khách hàng)
+      { _id:'nv2', MaNV: 44093014944, TenNhanVien:'A' },
+    ],
+  });
+  const rows = env.context.computeLaborRegisterRows();
+  assert.equal(rows.length, 2);
+  // Sắp xếp theo MaNV dạng chuỗi: "44093014944" < "48083006113" -> nv2 đứng trước
+  assert.equal(rows[0].hoTen, 'A');
+  assert.equal(rows[1].hoTen, 'B');
+});
