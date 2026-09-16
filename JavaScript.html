@@ -1771,11 +1771,13 @@ function renderNghiepVuEmpListHtml(){
   const employees = (DATA.DM_NHANVIEN||[]).filter(e=>e.TrangThai!=='Đã nghỉ việc');
   const filtered = search ? employees.filter(e => stripDiacritics(e.TenNhanVien).includes(stripDiacritics(search)) || stripDiacritics(e.MaNV).includes(stripDiacritics(search))) : employees;
   if(filtered.length===0) return `<div class="empty-state"><div class="icon">🔎</div><div class="msg">Không tìm thấy nhân viên phù hợp.</div></div>`;
+  // KHÔNG dùng class "nav-item" ở đây — class đó vẽ chữ màu xám nhạt (#cbd5e1) để đọc được trên nền
+  // sidebar tối, nhưng panel này nền trắng nên chữ bị mờ gần như vô hình. Tự set màu đúng cho nền sáng.
   return filtered.slice(0,200).map(e=>`
-    <div class="nav-item" style="cursor:pointer;" data-action="nghiepvu-pick-employee" data-id="${e._id}">
-      <span class="nav-dot"></span>
+    <div class="emp-pick-item" style="display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:8px;cursor:pointer;font-size:13.5px;font-weight:600;color:var(--text);" data-action="nghiepvu-pick-employee" data-id="${e._id}">
+      <span class="nav-dot" style="background:var(--text-mute);"></span>
       <span>${esc(e.TenNhanVien||'(Chưa đặt tên)')}</span>
-      <span style="margin-left:auto;color:var(--text-mute);font-size:12px;">${esc(e.MaNV||'')}</span>
+      <span style="margin-left:auto;color:var(--text-mute);font-size:12px;font-weight:500;">${esc(e.MaNV||'')}</span>
     </div>`).join('');
 }
 
