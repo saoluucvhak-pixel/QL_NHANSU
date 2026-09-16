@@ -433,3 +433,34 @@ test('archiveResolvedDrafts: chặn người không phải Admin', () => {
   env.setCurrentUser('quanly@example.com');
   assert.throws(() => env.context.archiveResolvedDrafts(), /Chỉ Admin/);
 });
+
+test('getEmployeeHistory: Khen thưởng/Kỷ luật/Nghỉ phép lọc theo ĐÚNG ngày sự việc thật (Ngay/TuNgay), không theo ngày duyệt/nhập liệu (regression: từng "biến mất" khỏi báo cáo khi nhập liệu sau ngày sự việc)', () => {
+  const env = createConfiguredGasEnv();
+  env.context.getCurrentUserInfo();
+  env.context.saveUserPermission({ Email: 'nv1@example.com', HoTen: 'NV1', VaiTro: 'Nhân viên', ChoPhepThaoTac: true, TrangThai: 'Hoạt động' });
+
+  env.setCurrentUser('nv1@example.com');
+  const emp = env.context.saveDraftRow('DM_NHANVIEN', { MaNV: 'NV050', TenNhanVien: 'K', SoCCCD: '050', NgayVaoHeThong: '2024-01-01', TrangThai: 'Đang làm việc' }, 'Thêm');
+  const hdld = env.context.saveDraftRow('CT_QUATRINHLAMVIEC', { _parentId: emp.targetId, SoHDLD: 'HD050', HinhThucHDLD: 'Chính thức', NgayVaoLam: '2024-01-01' }, 'Thêm');
+  const khen = env.context.saveDraftRow('CT_KHENTHUONG', { _parentId: hdld.targetId, Ngay: '2024-06-01', HinhThucKhenThuong: 'Giấy khen', LyDo: 'Hoàn thành tốt' }, 'Thêm');
+  const kyluat = env.context.saveDraftRow('CT_NOIQUY', { _parentId: hdld.targetId, Ngay: '2024-07-01', NoiDungViPham: 'Đi trễ', TinhTrangXuLy: 'Đã xử lý' }, 'Thêm');
+  const nghi = env.context.saveDraftRow('CT_NGHIPHEP', { _parentId: hdld.targetId, MaPhongBan: '', TuNgay: '2024-08-01T08:00', DenNgay: '2024-08-02T17:00', SoNgayNghi: 1, TrangThaiDuyet: 'Đã duyệt' }, 'Thêm');
+
+  env.setCurrentUser('saoluucvhak@gmail.com');
+  // Duyệt (= "nhập liệu chính thức") xảy ra ở NGÀY THẬT của môi trường test (không phải 2024) — mô
+  // phỏng đúng tình huống nhập bù/nhập hàng loạt sau khi sự việc đã xảy ra từ lâu.
+  env.context.approveDraft('DM_NHANVIEN', emp.draftRowId);
+  env.context.approveDraft('CT_QUATRINHLAMVIEC', hdld.draftRowId);
+  env.context.approveDraft('CT_KHENTHUONG', khen.draftRowId);
+  env.context.approveDraft('CT_NOIQUY', kyluat.draftRowId);
+  env.context.approveDraft('CT_NGHIPHEP', nghi.draftRowId);
+
+  const history = env.context.getEmployeeHistory(emp.targetId, '2024-01-01', '2024-12-31');
+  const tables = history.events.map(e => e.table);
+  assert.ok(tables.includes('CT_KHENTHUONG'), 'Khen thưởng phải xuất hiện khi lọc đúng năm 2024 (ngày sự việc thật)');
+  assert.ok(tables.includes('CT_NOIQUY'), 'Kỷ luật (Nội quy) phải xuất hiện khi lọc đúng năm 2024');
+  assert.ok(tables.includes('CT_NGHIPHEP'), 'Nghỉ phép phải xuất hiện khi lọc đúng năm 2024');
+
+  const khenEvent = history.events.find(e => e.table === 'CT_KHENTHUONG');
+  assert.equal(khenEvent.row.HieuLucTuNgay, '2024-06-01', 'cột hiển thị phải là ngày khen thưởng thật (Ngay), không phải ngày duyệt');
+});

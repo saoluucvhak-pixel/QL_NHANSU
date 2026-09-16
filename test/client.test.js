@@ -155,3 +155,32 @@ test('openNghiepVuModal("nghiphep"/"nghiom"): tự chọn ĐÚNG hợp đồng l
   assert.equal(ms.table, 'CT_NGHIOM');
   assert.equal(ms.parentId, 'hd-moi');
 });
+
+/* =========================================================================
+   computeEmployeeLeaveDetail — báo cáo nghỉ phép/ốm riêng cho từng nhân sự
+   ========================================================================= */
+test('computeEmployeeLeaveDetail: tính đúng định mức, đã nghỉ (chỉ tính "Đã duyệt") và còn lại theo đúng năm chọn', () => {
+  const env = createClientEnv();
+  env.setData({
+    DM_NHANVIEN: [{ _id:'nv1' }],
+    CT_QUATRINHLAMVIEC: [{ _id:'hd1', _parentId:'nv1' }],
+    CT_QUYENLOIPHEP: [
+      { _id:'ql1', _parentId:'hd1', NamApDung:2024, SoNgayDuocCap:12, SoNgayCongDon:2 },
+      { _id:'ql2', _parentId:'hd1', NamApDung:2023, SoNgayDuocCap:10, SoNgayCongDon:0 }, // năm khác -> không tính
+    ],
+    CT_NGHIPHEP: [
+      { _id:'np1', _parentId:'hd1', TuNgay:'2024-03-01', SoNgayNghi:3, TrangThaiDuyet:'Đã duyệt' },
+      { _id:'np2', _parentId:'hd1', TuNgay:'2024-05-01', SoNgayNghi:2, TrangThaiDuyet:'Chờ duyệt' }, // chưa duyệt -> không tính
+      { _id:'np3', _parentId:'hd1', TuNgay:'2023-05-01', SoNgayNghi:5, TrangThaiDuyet:'Đã duyệt' }, // năm khác -> không tính
+    ],
+    CT_NGHIOM: [
+      { _id:'no1', _parentId:'hd1', TuNgay:'2024-04-01', SoNgayNghi:1, TrangThaiDuyet:'Đã duyệt' },
+    ],
+  });
+  const d = env.context.computeEmployeeLeaveDetail('nv1', 2024);
+  assert.equal(d.dinhMuc, 14, 'định mức = 12 (được cấp) + 2 (cộng dồn) của đúng năm 2024');
+  assert.equal(d.daNghiPhep, 3, 'chỉ tính bản ghi Đã duyệt trong năm 2024 (bỏ qua Chờ duyệt và năm 2023)');
+  assert.equal(d.conLaiPhep, 11);
+  assert.equal(d.daNghiOm, 1);
+  assert.equal(Array.from(d.nghiPhepRows).length, 2, 'liệt kê cả bản ghi Chờ duyệt trong năm (chỉ loại khỏi tổng số ngày, không loại khỏi danh sách chi tiết)');
+});

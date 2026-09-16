@@ -547,6 +547,7 @@ let importModalOpen = false;
 let IMPORT_STATE = { busy:false, preview:null, error:null };
 let HEADCOUNT_RANGE = { tuNgay:'', denNgay:'' };
 let EMP_HISTORY_STATE = { empId:'', tuNgay:'', denNgay:'', loading:false, result:null, error:null };
+let LEAVE_EMP_STATE = { empId:'', year: new Date().getFullYear() };
 
 function uid(){ return 'id_' + Math.random().toString(36).slice(2,10) + Date.now().toString(36); }
 function fmt(d){ return d.toISOString().slice(0,10); }
@@ -2211,6 +2212,75 @@ function computeLeaveByEmployee(){
   addRows('CT_NGHIOM');
   return map;
 }
+/** Tra cứu chi tiết nghỉ phép/ốm của MỘT nhân viên trong 1 năm — định mức (từ Quyền lợi phép) so
+ *  với đã nghỉ (đã duyệt, từ Nghỉ phép/Nghỉ ốm), khác với 2 biểu đồ phía trên vốn chỉ tổng hợp
+ *  chung toàn công ty. CT_QUYENLOIPHEP/CT_NGHIPHEP/CT_NGHIOM đều nằm dưới hợp đồng lao động (không
+ *  trực tiếp dưới nhân viên) nên cần đi qua danh sách hợp đồng của nhân viên trước. */
+function computeEmployeeLeaveDetail(empId, year){
+  const hdldIds = rowsOf('CT_QUATRINHLAMVIEC', empId).map(h=>h._id);
+  const quyenLoi = (DATA.CT_QUYENLOIPHEP||[]).filter(r=>hdldIds.includes(r._parentId) && String(r.NamApDung)===String(year));
+  const soNgayDuocCap = quyenLoi.reduce((s,r)=>s+(Number(r.SoNgayDuocCap)||0),0);
+  const soNgayCongDon = quyenLoi.reduce((s,r)=>s+(Number(r.SoNgayCongDon)||0),0);
+  const dinhMuc = soNgayDuocCap + soNgayCongDon;
+
+  const inYear = r => String(r.TuNgay||'').slice(0,4)===String(year);
+  const nghiPhepRows = (DATA.CT_NGHIPHEP||[]).filter(r=>hdldIds.includes(r._parentId) && inYear(r)).sort((a,b)=>String(a.TuNgay).localeCompare(String(b.TuNgay)));
+  const nghiOmRows = (DATA.CT_NGHIOM||[]).filter(r=>hdldIds.includes(r._parentId) && inYear(r)).sort((a,b)=>String(a.TuNgay).localeCompare(String(b.TuNgay)));
+  const sumApproved = rows => rows.filter(r=>r.TrangThaiDuyet==='Đã duyệt').reduce((s,r)=>s+(Number(r.SoNgayNghi)||0),0);
+  const daNghiPhep = sumApproved(nghiPhepRows);
+  const daNghiOm = sumApproved(nghiOmRows);
+
+  return { dinhMuc, soNgayDuocCap, soNgayCongDon, daNghiPhep, daNghiOm, conLaiPhep: dinhMuc-daNghiPhep, nghiPhepRows, nghiOmRows, hasQuyenLoi: quyenLoi.length>0 };
+}
+
+function renderEmployeeLeaveDetail(){
+  const empOptions = (DATA.DM_NHANVIEN||[]).slice().sort((a,b)=>(a.TenNhanVien||'').localeCompare(b.TenNhanVien||''));
+  const st = LEAVE_EMP_STATE;
+  const d = st.empId ? computeEmployeeLeaveDetail(st.empId, st.year) : null;
+  const renderLeaveRows = (rows, emptyMsg) => rows.length===0
+    ? `<div class="empty-state" style="padding:20px;"><div class="msg">${esc(emptyMsg)}</div></div>`
+    : `<div class="table-wrap"><table>
+        <thead><tr><th>Từ ngày</th><th>Đến ngày</th><th>Số ngày</th><th>Trạng thái</th></tr></thead>
+        <tbody>${rows.map(r=>`<tr>
+          <td style="white-space:nowrap;">${esc(String(r.TuNgay||'').replace('T',' '))}</td>
+          <td style="white-space:nowrap;">${esc(String(r.DenNgay||'').replace('T',' '))}</td>
+          <td>${esc(r.SoNgayNghi)}</td>
+          <td><span class="tag ${tagClass(r.TrangThaiDuyet)}">${esc(r.TrangThaiDuyet)}</span></td>
+        </tr>`).join('')}</tbody>
+      </table></div>`;
+  return `
+  <div class="panel" style="margin-bottom:18px;">
+    <div class="panel-head">
+      <div><div class="panel-title">🔍 Tra cứu nghỉ phép/ốm theo từng nhân sự</div><div class="panel-desc">Chọn 1 nhân viên và 1 năm để xem định mức phép, đã nghỉ và còn lại — khác với biểu đồ tổng hợp chung toàn công ty ở trên.</div></div>
+    </div>
+    <div style="display:flex; gap:14px; flex-wrap:wrap; padding:0 20px 18px; align-items:flex-end;">
+      <div class="field" style="margin:0; min-width:220px;">
+        <label>Nhân viên</label>
+        <select id="lv-emp">
+          <option value="">— Chọn nhân viên —</option>
+          ${empOptions.map(e=>`<option value="${esc(e._id)}" ${st.empId===e._id?'selected':''}>${esc(e.TenNhanVien)} (${esc(e.MaNV)})</option>`).join('')}
+        </select>
+      </div>
+      <div class="field" style="margin:0; max-width:120px;"><label>Năm</label><input type="number" id="lv-year" value="${esc(st.year)}"></div>
+      <button class="btn btn-primary" data-action="leave-emp-filter">🔍 Xem</button>
+    </div>
+  </div>
+  ${d ? `
+  <div class="panel" style="margin-bottom:18px;">
+    <div class="stat-grid" style="padding:20px;">
+      <div class="stat-card"><div class="stat-num">${d.dinhMuc}</div><div class="stat-label">Định mức phép năm ${esc(st.year)} (cấp + cộng dồn)</div></div>
+      <div class="stat-card"><div class="stat-num">${d.daNghiPhep}</div><div class="stat-label">Đã nghỉ phép (đã duyệt)</div></div>
+      <div class="stat-card"><div class="stat-num">${d.conLaiPhep}</div><div class="stat-label">Còn lại</div></div>
+      <div class="stat-card"><div class="stat-num">${d.daNghiOm}</div><div class="stat-label">Đã nghỉ ốm (đã duyệt)</div></div>
+    </div>
+    ${!d.hasQuyenLoi ? `<div style="padding:0 20px 16px;"><div class="hint">⚠️ Chưa khai báo "Quyền lợi phép" cho năm ${esc(st.year)} — định mức đang hiện là 0, vào tab Quyền lợi phép trong hợp đồng lao động của nhân viên để thêm.</div></div>` : ''}
+    <div class="panel-head" style="padding-top:0;"><div class="panel-title" style="font-size:13.5px;">🌴 Chi tiết từng lần nghỉ phép</div></div>
+    ${renderLeaveRows(d.nghiPhepRows, 'Không có lần nghỉ phép nào trong năm này.')}
+    <div class="panel-head"><div class="panel-title" style="font-size:13.5px;">🤒 Chi tiết từng lần nghỉ ốm</div></div>
+    ${renderLeaveRows(d.nghiOmRows, 'Không có lần nghỉ ốm nào trong năm này.')}
+  </div>` : ''}`;
+}
+
 function renderReportLeave(){
   const byEmp = computeLeaveByEmployee();
   const empRows = Object.entries(byEmp).map(([id,total])=>({id,total,name:(getRow('DM_NHANVIEN',id)||{}).TenNhanVien||'?'})).sort((a,b)=>b.total-a.total).slice(0,10);
@@ -2223,7 +2293,8 @@ function renderReportLeave(){
   <div class="chart-card">
     <h3>Top nhân viên nghỉ nhiều nhất (đã duyệt)</h3>
     ${empRows.length? `<canvas id="chart-byemp" height="${Math.max(90, empRows.length*32)}"></canvas>` : `<div class="empty-state"><div class="icon">📭</div><div class="msg">${hasData? 'Chưa có đơn nghỉ nào được duyệt.' : 'Chưa có dữ liệu nghỉ phép / nghỉ ốm.'}</div></div>`}
-  </div>`;
+  </div>
+  ${renderEmployeeLeaveDetail()}`;
 }
 function initLeaveCharts(){
   if(typeof Chart === 'undefined') return;
@@ -3022,6 +3093,13 @@ function bindEvents(){
     }
     if(action==='eh-print'){ window.print(); return; }
     if(action==='eh-export'){ exportEmployeeHistoryExcel(); return; }
+    if(action==='leave-emp-filter'){
+      const empEl = document.getElementById('lv-emp'), yearEl = document.getElementById('lv-year');
+      if(!empEl || !empEl.value){ showToast('⚠️ Vui lòng chọn nhân viên.'); return; }
+      LEAVE_EMP_STATE.empId = empEl.value;
+      LEAVE_EMP_STATE.year = (yearEl && yearEl.value) ? Number(yearEl.value) : LEAVE_EMP_STATE.year;
+      render(); return;
+    }
     if(action==='go-danhmuc'){ nav = {view:'danhmuc', table: el.dataset.table}; render(); return; }
     if(action==='go-employee'){ nav = {view:'employee', empId: el.dataset.id}; render(); return; }
     if(action==='go-hdld'){

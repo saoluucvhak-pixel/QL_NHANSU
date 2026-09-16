@@ -819,11 +819,34 @@ const EMP_DIRECT_HISTORY_TABLES = ['CT_THONGTINCANHAN','CT_TRINHDOHOCVAN','CT_NH
 const EMP_CONTRACT_HISTORY_TABLES = ['CT_KHAMSUCKHOE','CT_QUYENLOIPHEP','CT_NGHIPHEP','CT_NGHIOM',
   'CT_CHITIETHOPDONG','CT_NOIQUY','CT_KHENTHUONG','CT_TAILIEU'];
 
+/** Các bảng dưới đây KHÔNG có ô "Hiệu lực từ ngày" trên form nhập (khác CT_THONGTINCANHAN,
+ *  CT_QUYENLOIPHEP... vốn dùng chính khái niệm này) — nên commitChange_ tự điền HieuLucTuNgay =
+ *  NGÀY DUYỆT (ngày nhập liệu), KHÔNG PHẢI ngày sự việc thật sự xảy ra. Nếu dùng HieuLucTuNgay để
+ *  lọc/sắp xếp báo cáo "Lịch sử nhân sự" theo khoảng ngày, các bản ghi Khen thưởng/Kỷ luật/Nghỉ
+ *  phép... nhập liệu SAU thời điểm sự việc thật (rất phổ biến — nhập bù, nhập hàng loạt) sẽ "biến
+ *  mất" khỏi đúng khoảng ngày người dùng tìm dù dữ liệu vẫn còn nguyên trong Sheet. Map sang đúng
+ *  cột ngày thật của từng bảng để lọc/hiển thị cho báo cáo này. */
+const HISTORY_EVENT_DATE_FIELD = {
+  CT_TRINHDOHOCVAN: 'NgayCapBang',
+  CT_THONGTINNGHENGHIEP: 'TuNgay',
+  CT_QUATRINHCONGTAC: 'TuNgay',
+  CT_NGHIPHEP: 'TuNgay',
+  CT_NGHIOM: 'TuNgay',
+  CT_NOIQUY: 'Ngay',
+  CT_KHENTHUONG: 'Ngay',
+  CT_TAILIEU: 'NgayTaiLieu',
+};
+
 function pushHistoryEvent_(events, table, row, tuNgay, denNgay) {
-  const d = row.HieuLucTuNgay || '';
+  const dateField = HISTORY_EVENT_DATE_FIELD[table];
+  const eventDate = (dateField && row[dateField]) ? row[dateField] : '';
+  const d = eventDate || row.HieuLucTuNgay || '';
   if (tuNgay && d && d < tuNgay) return;
   if (denNgay && d && d > denNgay) return;
-  events.push({ table: table, row: row });
+  // Trả về cho client đúng ngày sự việc thật (nếu có) ở cột "Hiệu lực từ ngày" hiển thị/sắp xếp —
+  // không đụng tới dữ liệu gốc trong Sheet, chỉ đổi trên bản sao trả về cho báo cáo này.
+  const displayRow = eventDate ? Object.assign({}, row, { HieuLucTuNgay: eventDate }) : row;
+  events.push({ table: table, row: displayRow });
 }
 
 /** Lấy TOÀN BỘ lịch sử thay đổi (mọi phiên bản, KHÔNG lọc mới nhất) của 1 nhân viên trong khoảng
