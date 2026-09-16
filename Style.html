@@ -197,12 +197,20 @@ input:checked + .slider:before{transform:translateX(18px);}
 ::-webkit-scrollbar-thumb{background:#d1d5db; border-radius:10px;}
 #sidebar::-webkit-scrollbar-thumb{background:rgba(255,255,255,.15);}
 
+.labor-register-table th, .labor-register-table td{ font-size:10.5px; padding:5px 6px; border:1px solid #d1d5db; white-space:normal; }
+.labor-register-table th{ background:var(--table-head-bg); color:#fff; font-weight:700; }
+
 .print-only{display:none;}
 @media print{
   #sidebar, #topbar, .report-tabbar, .btn, .modal, .overlay, .toast, .screen-only{display:none !important;}
   #main{margin:0 !important; width:100% !important;}
   #content{padding:0 !important;}
   .panel{border:none !important; box-shadow:none !important; padding:0 !important; page-break-inside:avoid;}
+  /* Sổ quản lý lao động có thể dài hàng chục dòng — không ép cả khối tránh ngắt trang như panel
+     thường (sẽ tràn/lệch trang), chỉ tránh ngắt NGANG GIỮA 1 dòng nhân viên. Nhiều cột (24 cột) —
+     gợi ý người dùng tự chọn "Ngang" (Landscape) trong hộp thoại in của trình duyệt. */
+  .labor-register-table-panel{ page-break-inside:auto !important; }
+  .labor-register-table tr{ page-break-inside:avoid; }
   .print-only{display:block !important;}
   body, #app{background:#fff !important;}
   table{font-size:11px;}

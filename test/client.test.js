@@ -184,3 +184,48 @@ test('computeEmployeeLeaveDetail: tính đúng định mức, đã nghỉ (chỉ
   assert.equal(d.daNghiOm, 1);
   assert.equal(Array.from(d.nghiPhepRows).length, 2, 'liệt kê cả bản ghi Chờ duyệt trong năm (chỉ loại khỏi tổng số ngày, không loại khỏi danh sách chi tiết)');
 });
+
+/* =========================================================================
+   computeLaborRegisterRows — Sổ quản lý lao động (Mẫu số 03, NĐ 145/2020)
+   ========================================================================= */
+test('computeLaborRegisterRows: điền đúng các cột có dữ liệu, để TRỐNG các cột chưa theo dõi trong hệ thống (không bịa số liệu)', () => {
+  const env = createClientEnv();
+  const thisYear = new Date().getFullYear();
+  env.setData({
+    DM_NHANVIEN: [{ _id:'nv1', MaNV:'NV001', TenNhanVien:'Nguyễn Văn A', SoCCCD:'001' }],
+    CT_THONGTINCANHAN: [{ _id:'ca1', _parentId:'nv1', GioiTinh:'Nam', NgaySinh:'1990-05-01', QuocTich:'Việt Nam', ThuongTru:'Đà Nẵng', SoCCCD:'001', NgayCap:'2024-01-01' }],
+    CT_TRINHDOHOCVAN: [{ _id:'hv1', _parentId:'nv1', TrinhDoHocVan:'Đại học', ChuyenMon:'Kế toán', NgayCapBang:'2015-06-01' }],
+    CT_QUATRINHCONGTAC: [{ _id:'qt1', _parentId:'nv1', TuNgay:'2024-01-01', MaPB:'pb1', MaCV:'cv1' }],
+    DM_PHONGBAN: [{ _id:'pb1', TenPB:'Kế toán' }],
+    DM_CHUCVU: [{ _id:'cv1', TenCV:'Kế toán trưởng' }],
+    CT_QUATRINHLAMVIEC: [{ _id:'hd1', _parentId:'nv1', SoHDLD:'HD001', HinhThucHDLD:'Không xác định thời hạn', NgayVaoLam:'2024-01-01' }],
+    CT_CHITIETHOPDONG: [{ _id:'ct1', _parentId:'hd1', LuongCoBan:10000000, HieuLucTuNgay:'2024-01-01' }],
+    CT_NGHIPHEP: [{ _id:'np1', _parentId:'hd1', TuNgay:`${thisYear}-03-01`, SoNgayNghi:2, TrangThaiDuyet:'Đã duyệt' }],
+    CT_NGHIOM: [],
+    CT_NOIQUY: [{ _id:'kl1', _parentId:'hd1', Ngay:'2024-02-01', NoiDungViPham:'Đi trễ', TinhTrangXuLy:'Đã xử lý' }],
+  });
+  const rows = env.context.computeLaborRegisterRows();
+  assert.equal(rows.length, 1);
+  const r = rows[0];
+  assert.equal(r.stt, 1);
+  assert.equal(r.hoTen, 'Nguyễn Văn A');
+  assert.equal(r.gioiTinh, 'Nam');
+  assert.equal(r.namSinh, '1990', 'chỉ lấy năm sinh, không phải cả ngày tháng');
+  assert.equal(r.quocTich, 'Việt Nam');
+  assert.equal(r.diaChi, 'Đà Nẵng');
+  assert.equal(r.cmnd, '001');
+  assert.equal(r.trinhDo, 'Đại học - Kế toán');
+  assert.equal(r.viTriLamViec, 'Kế toán trưởng');
+  assert.equal(r.loaiHDLD, 'Không xác định thời hạn');
+  assert.equal(r.ngayBatDau, '2024-01-01');
+  assert.equal(r.luongCoBan, 10000000);
+  assert.equal(r.soNgayNghi, 2, 'chỉ tính nghỉ phép/ốm Đã duyệt trong năm hiện tại');
+  assert.ok(r.kyLuat.includes('Đi trễ'), 'phải liệt kê đúng nội dung kỷ luật');
+  // Các cột chưa có bảng riêng để theo dõi trong hệ thống PHẢI để trống, không được bịa số liệu
+  assert.equal(r.bacKyNang, '');
+  assert.equal(r.bhxh, ''); assert.equal(r.bhyt, ''); assert.equal(r.bhtn, '');
+  assert.equal(r.soGioLamThem, '');
+  assert.equal(r.cheDoBH, '');
+  assert.equal(r.hocNghe, '');
+  assert.equal(r.taiNan, '');
+});

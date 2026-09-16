@@ -517,6 +517,7 @@ const REPORT_TABS = [
   {key:'employee-history', label:'🕘 Lịch sử nhân sự'},
   {key:'leave', label:'🌴 Thống kê nghỉ phép/ốm'},
   {key:'violations', label:'⚠️ Vi phạm chưa xử lý'},
+  {key:'labor-register', label:'📋 Sổ quản lý lao động'},
   {key:'upcoming', label:'📅 Sắp tới'},
   {key:'export', label:'📥 Xuất dữ liệu'},
 ];
@@ -1990,6 +1991,7 @@ function renderReports(){
   else if(tab==='employee-history') body = renderReportEmployeeHistory();
   else if(tab==='leave') body = renderReportLeave();
   else if(tab==='violations') body = renderReportViolations();
+  else if(tab==='labor-register') body = renderReportLaborRegister();
   else if(tab==='upcoming') body = renderReportUpcoming();
   else if(tab==='export') body = renderReportExport();
   return `<div class="report-tabbar">${tabsHtml}</div>${body}`;
@@ -2380,6 +2382,166 @@ function renderReportViolations(){
       </tbody>
     </table></div>
   </div>`;
+}
+
+/* =========================================================================
+   SỔ QUẢN LÝ LAO ĐỘNG — theo Mẫu số 03, Nghị định 145/2020/NĐ-CP (Điều 3)
+   Nhiều cột của mẫu (tham gia BHXH/BHYT/BHTN, số giờ làm thêm thực tế, học nghề/
+   đào tạo, tai nạn lao động, nâng bậc lương) KHÔNG có bảng riêng để theo dõi
+   trong hệ thống hiện tại — để TRỐNG thay vì bịa dữ liệu, người dùng tự bổ sung
+   bằng tay sau khi xuất ra.
+   ========================================================================= */
+const LABOR_REGISTER_HEADERS_BEFORE_BH = [
+  'STT','Họ và tên','Giới tính','Năm sinh','Quốc tịch','Địa chỉ','CMND (hộ chiếu)',
+  'Trình độ chuyên môn kỹ thuật','Bậc trình độ kỹ năng nghề','Vị trí làm việc','Loại HĐ LĐ',
+  'Thời điểm bắt đầu làm việc',
+];
+const LABOR_REGISTER_HEADERS_AFTER_BH = [
+  'Tiền lương cơ bản','Nâng bậc, nâng lương','Số ngày nghỉ trong năm, lý do','Số giờ làm thêm',
+  'Hưởng chế độ BHXH, BHYT, BHTN','Học nghề, đào tạo, bồi dưỡng, nâng cao trình độ kỹ năng nghề',
+  'Kỷ luật lao động, trách nhiệm vật chất','Tai nạn lao động, bệnh nghề nghiệp',
+  'Thời điểm chấm dứt HĐLĐ và lý do',
+];
+
+function computeLaborRegisterRows(){
+  const employees = (DATA.DM_NHANVIEN||[]).slice().sort((a,b)=>(a.MaNV||'').localeCompare(b.MaNV||''));
+  const currentYear = String(new Date().getFullYear());
+  return employees.map((emp, idx) => {
+    const canhan = latestByDate(rowsOf('CT_THONGTINCANHAN', emp._id), 'NgayCap');
+    const hocvan = latestByDate(rowsOf('CT_TRINHDOHOCVAN', emp._id), 'NgayCapBang');
+    const assign = getCurrentAssignment(emp._id);
+    const hdlds = rowsOf('CT_QUATRINHLAMVIEC', emp._id);
+    const activeHdld = hdlds.find(h=>!h.NgayChamDutHDLD) || latestByDate(hdlds, 'NgayVaoLam');
+    const earliestHdld = hdlds.slice().sort((a,b)=>String(a.NgayVaoLam||'').localeCompare(String(b.NgayVaoLam||'')))[0];
+    const chiTietHD = activeHdld ? latestByDate(rowsOf('CT_CHITIETHOPDONG', activeHdld._id), 'HieuLucTuNgay') : null;
+
+    const nghiTrongNam = activeHdld ? [
+      ...rowsOf('CT_NGHIPHEP', activeHdld._id).filter(r=>r.TrangThaiDuyet==='Đã duyệt' && String(r.TuNgay||'').slice(0,4)===currentYear),
+      ...rowsOf('CT_NGHIOM', activeHdld._id).filter(r=>r.TrangThaiDuyet==='Đã duyệt' && String(r.TuNgay||'').slice(0,4)===currentYear),
+    ] : [];
+    const tongNgayNghi = nghiTrongNam.reduce((s,r)=>s+(Number(r.SoNgayNghi)||0),0);
+
+    const kyLuatText = (activeHdld ? rowsOf('CT_NOIQUY', activeHdld._id) : [])
+      .map(r=>`${r.Ngay||''}: ${r.NoiDungViPham||''} (${r.TinhTrangXuLy||''})`).join('; ');
+
+    return {
+      stt: idx+1,
+      hoTen: emp.TenNhanVien || '',
+      gioiTinh: canhan ? canhan.GioiTinh : '',
+      namSinh: canhan && canhan.NgaySinh ? String(canhan.NgaySinh).slice(0,4) : '',
+      quocTich: canhan ? canhan.QuocTich : '',
+      diaChi: canhan ? (canhan.ThuongTru || canhan.DiaChiHienTai || '') : '',
+      cmnd: (canhan && canhan.SoCCCD) || emp.SoCCCD || '',
+      trinhDo: hocvan ? [hocvan.TrinhDoHocVan, hocvan.ChuyenMon].filter(Boolean).join(' - ') : '',
+      bacKyNang: '',
+      viTriLamViec: (assign.chucvu && assign.chucvu!=='—') ? assign.chucvu : '',
+      loaiHDLD: activeHdld ? activeHdld.HinhThucHDLD : '',
+      ngayBatDau: earliestHdld ? earliestHdld.NgayVaoLam : '',
+      bhxh: '', bhyt: '', bhtn: '',
+      luongCoBan: chiTietHD ? chiTietHD.LuongCoBan : '',
+      nangBac: '',
+      soNgayNghi: tongNgayNghi || '',
+      soGioLamThem: '',
+      cheDoBH: '',
+      hocNghe: '',
+      kyLuat: kyLuatText,
+      taiNan: '',
+      ngayChamDut: activeHdld && activeHdld.NgayChamDutHDLD
+        ? activeHdld.NgayChamDutHDLD + (activeHdld.GhiChu ? (' - ' + activeHdld.GhiChu) : '')
+        : '',
+    };
+  });
+}
+
+function renderLaborRegisterTable(){
+  const rows = computeLaborRegisterRows();
+  return `
+  <div class="table-wrap"><table class="labor-register-table">
+    <thead>
+      <tr>
+        ${LABOR_REGISTER_HEADERS_BEFORE_BH.map(h=>`<th rowspan="2">${esc(h)}</th>`).join('')}
+        <th colspan="3">Tham gia bảo hiểm</th>
+        ${LABOR_REGISTER_HEADERS_AFTER_BH.map(h=>`<th rowspan="2">${esc(h)}</th>`).join('')}
+      </tr>
+      <tr><th>BHXH</th><th>BHYT</th><th>BHTN</th></tr>
+    </thead>
+    <tbody>
+      ${rows.length===0 ? `<tr><td colspan="24" style="text-align:center;padding:20px;">Chưa có nhân viên.</td></tr>` : rows.map(r=>`
+      <tr>
+        <td>${r.stt}</td><td>${esc(r.hoTen)}</td><td>${esc(r.gioiTinh)}</td><td>${esc(r.namSinh)}</td>
+        <td>${esc(r.quocTich)}</td><td>${esc(r.diaChi)}</td><td>${esc(r.cmnd)}</td>
+        <td>${esc(r.trinhDo)}</td><td>${esc(r.bacKyNang)}</td><td>${esc(r.viTriLamViec)}</td>
+        <td>${esc(r.loaiHDLD)}</td><td>${esc(r.ngayBatDau)}</td>
+        <td>${esc(r.bhxh)}</td><td>${esc(r.bhyt)}</td><td>${esc(r.bhtn)}</td>
+        <td>${r.luongCoBan ? Number(r.luongCoBan).toLocaleString('vi-VN') : ''}</td>
+        <td>${esc(r.nangBac)}</td><td>${esc(r.soNgayNghi)}</td><td>${esc(r.soGioLamThem)}</td>
+        <td>${esc(r.cheDoBH)}</td><td>${esc(r.hocNghe)}</td><td>${esc(r.kyLuat)}</td>
+        <td>${esc(r.taiNan)}</td><td>${esc(r.ngayChamDut)}</td>
+      </tr>`).join('')}
+    </tbody>
+  </table></div>`;
+}
+
+function renderReportLaborRegister(){
+  const congTy = (DATA.DM_CONG||[])[0] || {};
+  return `
+  <div class="panel" style="margin-bottom:18px;">
+    <div class="panel-head">
+      <div>
+        <div class="panel-title">📋 Sổ quản lý lao động</div>
+        <div class="panel-desc">Theo đúng cấu trúc Mẫu số 03 (Nghị định 145/2020/NĐ-CP) — tự động điền các cột đã có dữ liệu trong hệ thống. Các cột <b>Bậc trình độ kỹ năng nghề, Tham gia bảo hiểm (BHXH/BHYT/BHTN), Nâng bậc nâng lương, Số giờ làm thêm, Hưởng chế độ BHXH/BHYT/BHTN, Học nghề/đào tạo, Tai nạn lao động</b> chưa có bảng riêng để theo dõi trong app nên để trống — cần bạn tự bổ sung bằng tay.</div>
+        <div class="hint" style="margin-top:6px;">💡 Bảng có 24 cột — khi bấm "In / Xuất PDF", nhớ chọn hướng giấy <b>Ngang (Landscape)</b> trong hộp thoại in của trình duyệt để không bị cắt cột.</div>
+      </div>
+      <div style="display:flex; gap:8px;">
+        <button class="btn btn-ghost btn-sm" data-action="lr-print">🖨️ In / Xuất PDF</button>
+        <button class="btn btn-ghost btn-sm" data-action="lr-export-excel">📥 Xuất Excel</button>
+      </div>
+    </div>
+  </div>
+  <div class="panel labor-register-table-panel">
+    <div class="print-only" style="padding:16px 20px 0;">
+      <div style="font-weight:700;">${esc(congTy.TenCongty || '(Tên doanh nghiệp)')}</div>
+      <div style="font-size:12px; margin-bottom:10px;">Địa chỉ: ${esc(congTy.DiaChi || '')}</div>
+      <div style="font-weight:800; font-size:15px; text-align:center; margin-bottom:10px;">SỔ QUẢN LÝ LAO ĐỘNG</div>
+    </div>
+    ${renderLaborRegisterTable()}
+  </div>`;
+}
+
+function exportLaborRegisterExcel(){
+  if(typeof XLSX === 'undefined'){ showToast('⚠️ Thư viện xuất Excel chưa tải xong, thử lại sau.'); return; }
+  const rows = computeLaborRegisterRows();
+  const congTy = (DATA.DM_CONG||[])[0] || {};
+  const headerRow1 = [...LABOR_REGISTER_HEADERS_BEFORE_BH, 'Tham gia bảo hiểm', '', '', ...LABOR_REGISTER_HEADERS_AFTER_BH];
+  const headerRow2 = [...LABOR_REGISTER_HEADERS_BEFORE_BH.map(()=>''), 'BHXH', 'BHYT', 'BHTN', ...LABOR_REGISTER_HEADERS_AFTER_BH.map(()=>'')];
+  const aoa = [
+    [congTy.TenCongty || '(TÊN DOANH NGHIỆP)'],
+    [`Địa chỉ: ${congTy.DiaChi || ''}`],
+    ['SỔ QUẢN LÝ LAO ĐỘNG'],
+    headerRow1,
+    headerRow2,
+    ...rows.map(r=>[r.stt, r.hoTen, r.gioiTinh, r.namSinh, r.quocTich, r.diaChi, r.cmnd, r.trinhDo, r.bacKyNang,
+      r.viTriLamViec, r.loaiHDLD, r.ngayBatDau, r.bhxh, r.bhyt, r.bhtn, r.luongCoBan, r.nangBac, r.soNgayNghi,
+      r.soGioLamThem, r.cheDoBH, r.hocNghe, r.kyLuat, r.taiNan, r.ngayChamDut]),
+  ];
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  // Merge y hệt cấu trúc mẫu gốc: 3 dòng tiêu đề công ty/tên sổ chiếm hết 24 cột, mọi cột trừ
+  // "Tham gia bảo hiểm" gộp dọc 2 dòng tiêu đề (rowspan), riêng "Tham gia bảo hiểm" gộp ngang 3
+  // cột (BHXH/BHYT/BHTN) ở dòng đầu rồi tách ra ở dòng thứ 2.
+  const lastCol = headerRow1.length - 1;
+  const rowspanCols = [];
+  for(let c=0;c<=lastCol;c++){ if(c<12 || c>14) rowspanCols.push(c); }
+  ws['!merges'] = [
+    {s:{r:0,c:0}, e:{r:0,c:lastCol}},
+    {s:{r:1,c:0}, e:{r:1,c:lastCol}},
+    {s:{r:2,c:0}, e:{r:2,c:lastCol}},
+    {s:{r:3,c:12}, e:{r:3,c:14}},
+    ...rowspanCols.map(c=>({s:{r:3,c:c}, e:{r:4,c:c}})),
+  ];
+  ws['!cols'] = headerRow1.map(()=>({wch:16}));
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'SoQuanLyLaoDong');
+  XLSX.writeFile(wb, `SoQuanLyLaoDong_${fmtTodayIso()}.xlsx`);
 }
 
 function computeUpcomingBirthdays(){
@@ -3106,6 +3268,8 @@ function bindEvents(){
     }
     if(action==='hc-print'){ window.print(); return; }
     if(action==='hc-export'){ exportHeadcountExcel(); return; }
+    if(action==='lr-print'){ window.print(); return; }
+    if(action==='lr-export-excel'){ exportLaborRegisterExcel(); return; }
     if(action==='eh-filter'){
       const empEl = document.getElementById('eh-emp'), tu = document.getElementById('eh-tu'), den = document.getElementById('eh-den');
       const empId = empEl ? empEl.value : '';
