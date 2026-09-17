@@ -637,6 +637,79 @@ function getAllData() {
   return merged;
 }
 
+/** Tạo 1 Google Sheet MỚI — thuộc Drive của người đang xem (script chạy dưới quyền "USER_ACCESSING"
+ *  nên SpreadsheetApp.create() luôn tạo file trong Drive của CHÍNH người gọi, không cần chia sẻ thêm)
+ *  — từ 1 mảng 2 chiều (aoa), áp định dạng chuyên nghiệp (tiêu đề công ty in đậm căn giữa, dòng tiêu
+ *  đề cột tô nền đậm/chữ trắng, toàn bảng có viền lưới đầy đủ, gộp ô theo đúng cấu trúc mẫu, đóng băng
+ *  các dòng tiêu đề), rồi trả về link xuất Excel/PDF trực tiếp từ Google Sheets — thay cho việc dùng
+ *  thư viện Excel phía trình duyệt (không style được đẹp/đúng) hoặc in "chụp màn hình" giao diện app.
+ *  Mỗi lần gọi tạo 1 file MỚI hoàn toàn — không tái sử dụng/ghi đè file cũ. */
+function buildReportExport(title, aoa, opts) {
+  const me = getCurrentUserInfo();
+  if (!me.role) throw new Error('Bạn không có quyền thực hiện thao tác này.');
+  if (!aoa || !aoa.length) throw new Error('Không có dữ liệu để xuất báo cáo.');
+  opts = opts || {};
+  const sheetName = String(opts.sheetName || 'BaoCao').slice(0, 90);
+  const titleRowCount = opts.titleRowCount || 0;
+  const headerRowStart = opts.headerRowStart != null ? opts.headerRowStart : titleRowCount;
+  const headerRowCount = opts.headerRowCount || 0;
+  const merges = opts.merges || [];
+  const colWidths = opts.colWidths || [];
+  const landscape = !!opts.landscape;
+  const freezeRows = opts.freezeRows != null ? opts.freezeRows : (headerRowStart + headerRowCount);
+
+  const numRows = aoa.length;
+  const numCols = aoa.reduce(function (m, r) { return Math.max(m, r.length); }, 0);
+  if (!numCols) throw new Error('Không có dữ liệu để xuất báo cáo.');
+
+  const ss = SpreadsheetApp.create(title);
+  const sheet = ss.getSheets()[0];
+  sheet.setName(sheetName);
+
+  const values = aoa.map(function (row) {
+    const r = row.slice(0, numCols);
+    while (r.length < numCols) r.push('');
+    return r;
+  });
+  const fullRange = sheet.getRange(1, 1, numRows, numCols);
+  fullRange.setValues(values);
+  fullRange.setFontFamily('Arial').setFontSize(10).setVerticalAlignment('middle')
+    .setHorizontalAlignment('left').setBorder(true, true, true, true, true, true);
+
+  merges.forEach(function (m) {
+    sheet.getRange(m.r1 + 1, m.c1 + 1, m.r2 - m.r1 + 1, m.c2 - m.c1 + 1).merge();
+  });
+
+  if (titleRowCount > 0) {
+    sheet.getRange(1, 1, titleRowCount, numCols)
+      .setFontWeight('bold').setFontSize(13).setHorizontalAlignment('center')
+      .setBorder(false, false, false, false, false, false);
+  }
+  if (headerRowCount > 0) {
+    sheet.getRange(headerRowStart + 1, 1, headerRowCount, numCols)
+      .setFontWeight('bold').setBackground('#1f4e78').setFontColor('#ffffff')
+      .setHorizontalAlignment('center').setVerticalAlignment('middle').setWrap(true);
+  }
+  if (freezeRows > 0) sheet.setFrozenRows(freezeRows);
+  if (colWidths.length) colWidths.forEach(function (w, i) { sheet.setColumnWidth(i + 1, w); });
+  else sheet.autoResizeColumns(1, numCols);
+
+  const id = ss.getId();
+  const gid = sheet.getSheetId();
+  const base = 'https://docs.google.com/spreadsheets/d/' + id;
+  const pdfParams = [
+    'format=pdf', 'gid=' + gid, 'portrait=' + (!landscape), 'size=A4', 'scale=4', 'fitw=true',
+    'top_margin=0.4', 'bottom_margin=0.4', 'left_margin=0.4', 'right_margin=0.4',
+    'sheetnames=false', 'printtitle=false', 'pagenumbers=true', 'gridlines=true',
+    'fzr=' + (freezeRows > 0),
+  ].join('&');
+  return {
+    sheetUrl: base + '/edit',
+    xlsxUrl: base + '/export?format=xlsx',
+    pdfUrl: base + '/export?' + pdfParams,
+  };
+}
+
 /** Với các bảng có "lịch sử phiên bản" (mọi bảng trừ DM_CONG/DM_NGUOIDUNG): 1 _id có thể ứng với
  *  NHIỀU dòng trong Sheet (mỗi lần Thêm/Sửa/Hủy tạo 1 dòng lịch sử). Hàm này chỉ giữ lại — cho mỗi
  *  _id — đúng 1 dòng có "Hiệu lực từ ngày" MỚI NHẤT để hiển thị lên app (kể cả khi dòng mới nhất đó

@@ -225,5 +225,16 @@ input:checked + .slider:before{transform:translateX(18px);}
   body, #app{background:#fff !important;}
   table{font-size:11px;}
   .actions, td.actions, .btn-link-text, .btn-danger-text{display:none !important;}
+
+  /* Trước đây in ra vẫn mang nguyên giao diện "app web" (font tròn hiện đại, thẻ số liệu bo góc có
+     màu, nhãn trạng thái dạng viên thuốc màu mè, bảng chỉ có viền dưới) — nhìn giống chụp lại màn
+     hình app hơn là 1 báo cáo giấy. Đổi sang giao diện tài liệu truyền thống: font Times New Roman,
+     toàn bộ màu/bo góc/đổ bóng bỏ hết, bảng có viền lưới đầy đủ như in từ Word/Excel. */
+  body, #app, .panel-title, .page-title, .stat-num, .stat-label{ font-family:'Times New Roman', Times, serif !important; }
+  .stat-card{ background:#fff !important; border:1px solid #000 !important; border-radius:0 !important; box-shadow:none !important; }
+  .stat-num, .stat-label, .panel-title, .page-title, .panel-desc, .page-desc{ color:#000 !important; }
+  .tag, .pk-badge{ background:#fff !important; border:1px solid #000 !important; border-radius:0 !important; color:#000 !important; }
+  table, th, td{ border:1px solid #000 !important; border-collapse:collapse !important; }
+  thead th{ background:#e5e7eb !important; color:#000 !important; }
 }
 </style>
