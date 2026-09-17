@@ -930,24 +930,35 @@ function getEmployeeHistory(empId, tuNgay, denNgay) {
   if (!me.role) throw new Error('Bạn chưa có quyền truy cập.');
   const cfg = getConfig_();
   if (!cfg) throw new Error('Chưa cấu hình liên kết Google Sheet. Hãy thiết lập trước.');
-  const emp = getLatestRowById_('DM_NHANVIEN', empId);
+
+  // Trước đây đọc TỪNG bảng riêng (17 bảng, mỗi bảng ít nhất 2 lượt gọi SpreadsheetApp) — với công ty
+  // có nhiều nhân viên và nhiều năm lịch sử (mỗi lần Thêm/Sửa đều APPEND thêm 1 dòng, sheet ngày càng
+  // dài), tổng cộng 30-40 lượt gọi tuần tự khiến màn "Lịch sử nhân sự" chạy rất chậm, có cảm giác bị
+  // "treo". Gộp lại thành ĐÚNG 1 lượt gọi batchGet (giống batchReadSpreadsheet_ ở getAllData) cho toàn
+  // bộ các bảng cần dùng, rồi lọc trên bộ nhớ — nhanh hơn nhiều lần.
+  const allTables = EMP_DIRECT_HISTORY_TABLES.concat(EMP_CONTRACT_HISTORY_TABLES, ['DM_NHANVIEN'])
+    .filter(function (t, i, arr) { return arr.indexOf(t) === i; });
+  const data = batchReadSpreadsheet_(cfg.nhanSuId, allTables);
+
+  const empRows = (data.DM_NHANVIEN || []).filter(function (r) { return r._id === empId; })
+    .sort(function (a, b) { return String(a.HieuLucTuNgay || '').localeCompare(String(b.HieuLucTuNgay || '')); });
+  const emp = empRows[empRows.length - 1];
   if (!emp) throw new Error('Không tìm thấy nhân viên.');
 
   const events = [];
 
   EMP_DIRECT_HISTORY_TABLES.forEach(function (table) {
-    const rows = sheetToObjects_(getOrCreateSheet_(table)).filter(function (r) { return r._parentId === empId; });
-    rows.forEach(function (r) { pushHistoryEvent_(events, table, r, tuNgay, denNgay); });
+    (data[table] || []).filter(function (r) { return r._parentId === empId; })
+      .forEach(function (r) { pushHistoryEvent_(events, table, r, tuNgay, denNgay); });
   });
 
   const hdldIdSet = {};
-  sheetToObjects_(getOrCreateSheet_('CT_QUATRINHLAMVIEC'))
-    .filter(function (r) { return r._parentId === empId; })
+  (data.CT_QUATRINHLAMVIEC || []).filter(function (r) { return r._parentId === empId; })
     .forEach(function (r) { hdldIdSet[r._id] = true; });
 
   EMP_CONTRACT_HISTORY_TABLES.forEach(function (table) {
-    const rows = sheetToObjects_(getOrCreateSheet_(table)).filter(function (r) { return hdldIdSet[r._parentId]; });
-    rows.forEach(function (r) { pushHistoryEvent_(events, table, r, tuNgay, denNgay); });
+    (data[table] || []).filter(function (r) { return hdldIdSet[r._parentId]; })
+      .forEach(function (r) { pushHistoryEvent_(events, table, r, tuNgay, denNgay); });
   });
 
   events.sort(function (a, b) { return String(a.row.HieuLucTuNgay || '').localeCompare(String(b.row.HieuLucTuNgay || '')); });
