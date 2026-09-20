@@ -303,3 +303,34 @@ test('buildLaborRegisterAoa: đúng 24 cột, gộp ô header y hệt cấu trú
   assert.ok(merges.some(m => m.r1===3 && m.c1===0 && m.r2===4 && m.c2===0), 'cột STT (cột 0) phải gộp dọc 2 dòng header (rowspan)');
   assert.ok(!merges.some(m => m.c1===12 && m.r2===4), 'cột BHXH (12) không được gộp dọc vì đã gộp ngang riêng ở dòng 3');
 });
+
+test('buildEmployeeHistoryAoa: AOA có đúng dòng tiêu đề + dòng cột từ EMP_HISTORY_STATE.result; báo lỗi rõ ràng nếu chưa có kết quả', () => {
+  const env = createClientEnv();
+  env.setData({ DM_CONG: [{ TenCongty: 'Công ty ABC' }] });
+
+  assert.throws(() => env.context.buildEmployeeHistoryAoa(), /Chưa có dữ liệu/, 'phải báo lỗi rõ ràng khi chưa bấm Xem lịch sử');
+
+  env.setEmpHistoryState({
+    tuNgay: '2024-01-01', denNgay: '2024-12-31',
+    result: {
+      employee: { TenNhanVien: 'Nguyễn Văn A', MaNV: 'NV001' },
+      events: [
+        { table: 'CT_KHENTHUONG', row: { HieuLucTuNgay: '2024-06-01', TrangThaiBanGhi: 'Thêm mới', HinhThucKhenThuong: 'Giấy khen', LyDo: 'Hoàn thành tốt' } },
+      ],
+    },
+  });
+
+  const cfg = env.context.buildEmployeeHistoryAoa();
+  assert.equal(cfg.sheetName, 'LichSuNhanSu');
+  assert.equal(cfg.titleRowCount, 2);
+  assert.equal(cfg.headerRowStart, 2);
+  assert.equal(cfg.headerRowCount, 1);
+  assert.equal(cfg.aoa[0][0], 'Công ty ABC');
+  assert.deepEqual(Array.from(cfg.aoa[2]), ['Hiệu lực từ ngày','Loại hồ sơ','Hành động','Nội dung']);
+  const dataRow = cfg.aoa[3];
+  assert.equal(dataRow[0], '2024-06-01');
+  assert.equal(dataRow[2], 'Thêm mới');
+  const lastCol = 3;
+  const merges = Array.from(cfg.merges).map(m => ({ r1:m.r1, c1:m.c1, r2:m.r2, c2:m.c2 }));
+  assert.deepEqual(merges, [ { r1:0, c1:0, r2:0, c2:lastCol }, { r1:1, c1:0, r2:1, c2:lastCol } ]);
+});

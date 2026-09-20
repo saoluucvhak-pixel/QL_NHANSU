@@ -68,6 +68,7 @@ globalThis.__setData__ = function(d){ DATA = d; };
 globalThis.__getData__ = function(){ return DATA; };
 globalThis.__getModalState__ = function(){ return modalState; };
 globalThis.__setHeadcountRange__ = function(v){ Object.assign(HEADCOUNT_RANGE, v); };
+globalThis.__setEmpHistoryState__ = function(v){ Object.assign(EMP_HISTORY_STATE, v); };
 `;
   vm.runInContext(scriptBody + '\n' + expose, context, { filename: 'JavaScript.html' });
 
@@ -78,6 +79,7 @@ globalThis.__setHeadcountRange__ = function(v){ Object.assign(HEADCOUNT_RANGE, v
     getData() { return context.__getData__(); },
     getModalState() { return context.__getModalState__(); },
     setHeadcountRange(v) { context.__setHeadcountRange__(v); },
+    setEmpHistoryState(v) { context.__setEmpHistoryState__(v); },
   };
 }
 

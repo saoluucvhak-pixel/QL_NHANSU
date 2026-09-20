@@ -2227,8 +2227,8 @@ function renderReportEmployeeHistory(){
       <div class="field" style="margin:0;"><label>Đến ngày</label><input type="date" id="eh-den" value="${esc(EMP_HISTORY_STATE.denNgay)}"></div>
       <button class="btn btn-primary" data-action="eh-filter" ${EMP_HISTORY_STATE.loading?'disabled':''}>${EMP_HISTORY_STATE.loading?'⏳ Đang tải…':'🔍 Xem lịch sử'}</button>
       ${r ? `<div style="flex:1"></div>
-      <button class="btn btn-ghost" data-action="eh-print">🖨️ In</button>
-      <button class="btn btn-ghost" data-action="eh-export">📥 Xuất Excel</button>` : ''}
+      <button class="btn btn-ghost" data-action="eh-print">📄 Xuất PDF chuyên nghiệp</button>
+      <button class="btn btn-ghost" data-action="eh-export">📊 Xuất Excel chuyên nghiệp</button>` : ''}
     </div>
   </div>
   ${EMP_HISTORY_STATE.error ? `<div class="panel"><div class="empty-state"><div class="icon">⚠️</div><div class="msg">${esc(EMP_HISTORY_STATE.error)}</div></div></div>` : ''}
@@ -2253,18 +2253,34 @@ function renderReportEmployeeHistory(){
   </div>` : ''}`;
 }
 
-function exportEmployeeHistoryExcel(){
-  if(typeof XLSX === 'undefined'){ showToast('⚠️ Thư viện xuất Excel chưa tải xong, thử lại sau.'); return; }
+/** Chuẩn bị AOA + cấu hình định dạng cho "Lịch sử nhân sự", dùng chung cho xuất Excel/PDF qua
+ *  buildReportExport (tạo Google Sheet thật, style đẹp) thay cho thư viện Excel phía trình duyệt. */
+function buildEmployeeHistoryAoa(){
   const r = EMP_HISTORY_STATE.result;
-  if(!r) return;
-  const data = r.events.map(ev=>({
-    'Hiệu lực từ ngày': ev.row.HieuLucTuNgay||'', 'Loại hồ sơ': HISTORY_TABLE_LABELS[ev.table]||ev.table,
-    'Hành động': ev.row.TrangThaiBanGhi||'Thêm mới', 'Nội dung': summarizeHistoryRow(ev.table, ev.row),
-  }));
-  const wb = XLSX.utils.book_new();
-  const ws = data.length ? XLSX.utils.json_to_sheet(data) : XLSX.utils.aoa_to_sheet([['Không có dữ liệu']]);
-  XLSX.utils.book_append_sheet(wb, ws, 'LichSuNhanSu');
-  XLSX.writeFile(wb, `LichSu_${(r.employee.MaNV||'NV')}_${EMP_HISTORY_STATE.tuNgay}_${EMP_HISTORY_STATE.denNgay}.xlsx`);
+  if(!r) throw new Error('Chưa có dữ liệu lịch sử để xuất — hãy bấm "Xem lịch sử" trước.');
+  const congTy = (DATA.DM_CONG||[])[0] || {};
+  const headers = ['Hiệu lực từ ngày','Loại hồ sơ','Hành động','Nội dung'];
+  const aoa = [
+    [congTy.TenCongty || '(TÊN DOANH NGHIỆP)'],
+    [`LỊCH SỬ THAY ĐỔI — ${r.employee.TenNhanVien} (${r.employee.MaNV}) — TỪ ${EMP_HISTORY_STATE.tuNgay} ĐẾN ${EMP_HISTORY_STATE.denNgay}`],
+    headers,
+    ...r.events.map(ev=>[
+      ev.row.HieuLucTuNgay||'', HISTORY_TABLE_LABELS[ev.table]||ev.table, ev.row.TrangThaiBanGhi||'Thêm mới',
+      summarizeHistoryRow(ev.table, ev.row),
+    ]),
+  ];
+  const lastCol = headers.length - 1;
+  return {
+    title: `Lịch sử nhân sự ${r.employee.TenNhanVien} ${EMP_HISTORY_STATE.tuNgay} đến ${EMP_HISTORY_STATE.denNgay}`,
+    sheetName: 'LichSuNhanSu',
+    aoa,
+    titleRowCount: 2,
+    headerRowStart: 2,
+    headerRowCount: 1,
+    merges: [ {r1:0,c1:0,r2:0,c2:lastCol}, {r1:1,c1:0,r2:1,c2:lastCol} ],
+    colWidths: [110,160,110,420],
+    landscape: false,
+  };
 }
 
 
@@ -3349,17 +3365,13 @@ function bindEvents(){
       EMP_HISTORY_STATE.loading = false;
       render(); return;
     }
-    if(action==='eh-print'){
-      const empName = EMP_HISTORY_STATE.result ? EMP_HISTORY_STATE.result.employee.TenNhanVien : '';
-      printWithTitle(`Lịch sử nhân sự ${empName} ${EMP_HISTORY_STATE.tuNgay} đến ${EMP_HISTORY_STATE.denNgay}`);
-      return;
-    }
+    if(action==='eh-print'){ exportReportProfessional('pdf', buildEmployeeHistoryAoa); return; }
     if(action==='emp-print'){
       const emp = getRow('DM_NHANVIEN', nav.empId);
       printWithTitle(`Hồ sơ nhân sự ${emp ? emp.TenNhanVien : ''}`);
       return;
     }
-    if(action==='eh-export'){ exportEmployeeHistoryExcel(); return; }
+    if(action==='eh-export'){ exportReportProfessional('excel', buildEmployeeHistoryAoa); return; }
     if(action==='leave-emp-filter'){
       const empEl = document.getElementById('lv-emp'), yearEl = document.getElementById('lv-year');
       if(!empEl || !empEl.value){ showToast('⚠️ Vui lòng chọn nhân viên.'); return; }
